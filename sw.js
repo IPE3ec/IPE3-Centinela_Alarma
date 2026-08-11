@@ -1,4 +1,4 @@
-const CACHE_VERSION = `centinela-${new Date().getTime()}`; 
+const CACHE_NAME = `centinela-${new Date().getTime()}`;
 const APP_SHELL = [
   './index.html',
   './styles.css',
