@@ -17,8 +17,11 @@ body{background:var(--bg); color:var(--text); font-family:'Inter',sans-serif; ov
 .brand-name{font-family:'Rajdhani',sans-serif; font-weight:700; font-size:18px; letter-spacing:.5px;}
 .status-pill{display:flex; align-items:center; gap:6px; padding:6px 12px; border-radius:999px; background:var(--surface); border:1px solid var(--border); font-family:'JetBrains Mono',monospace; font-size:11px; color:var(--text-dim); cursor:pointer;}
 .status-pill .dot{width:6px; height:6px; border-radius:50%; background:var(--text-dim); transition:background .2s ease, box-shadow .2s ease;}
-.status-pill.on .dot{background:var(--accent); box-shadow:0 0 8px var(--accent);}
-.status-pill.warn .dot{background:var(--warn); box-shadow:0 0 8px var(--warn);}
+.status-pill.on{border-color:rgba(0,229,176,.4); background:var(--accent-dim); color:var(--accent);}
+.status-pill.on .dot{background:var(--accent); box-shadow:0 0 8px var(--accent); animation:dotPulse 1.6s ease-in-out infinite;}
+.status-pill.warn{border-color:rgba(255,176,32,.4); background:var(--warn-dim); color:var(--warn);}
+.status-pill.warn .dot{background:var(--warn); box-shadow:0 0 8px var(--warn); animation:dotPulse 1s ease-in-out infinite;}
+@keyframes dotPulse{0%,100%{transform:scale(1); opacity:1;} 50%{transform:scale(1.5); opacity:.55;}}
 
 .screens{flex:1; overflow-y:auto; overflow-x:hidden; -webkit-overflow-scrolling:touch; position:relative;}
 
