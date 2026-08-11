@@ -1,4 +1,4 @@
-const CACHE_NAME = 'centinela-v3';
+const CACHE_NAME = 'centinela-v6';
 
 const APP_SHELL = [
   './',
