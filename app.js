@@ -201,26 +201,6 @@ setLastActivity();
 console.warn("Estado BLE ilegible:", e);
 }
 },
-     Object.assign(state.vehicle, {
-          armed: !!data.armed,
-          locked: !!data.locked,
-          engine: !!data.engine,
-          doorOpen: !!data.doorOpen,
-          parked: !!data.parked,
-          battery: typeof data.battery === "number" ? data.battery : state.vehicle.battery,
-          windowL: typeof data.windowL === "number" ? data.windowL : state.vehicle.windowL,
-          windowR: typeof data.windowR === "number" ? data.windowR : state.vehicle.windowR,
-          lights: data.lights || state.vehicle.lights
-        });
-        if (data.ack && data.message) {
-          showToast(data.message, data.ok ? "ok" : "warn");
-        }
-        Vehicle.updateVehicleUI();
-        setLastActivity();
-      } catch (e) {
-        console.warn("Estado BLE ilegible:", e);
-      }
-    },
 
    async send(cmd, okLabel) {
 if (!state.connected || !state.cmdChar) {
@@ -234,7 +214,7 @@ const ok = await Vehicle.connect();
          // ✅ AGREGAR NONCE Y TIMESTAMP
          const nonce = Math.random().toString(36).slice(2, 11);
          const timestamp = Date.now();
-         const secureCmd = ${cmd}|${nonce}|${timestamp};
+         const secureCmd = `${cmd}|${nonce}|${timestamp}`;
          
          await state.cmdChar.writeValue(new TextEncoder().encode(secureCmd));
          if (okLabel) showToast(okLabel, "ok");
