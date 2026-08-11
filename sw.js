@@ -1,4 +1,4 @@
-const CACHE_NAME = 'centinela-v6';
+const CACHE_NAME = 'centinela-v7';
 
 const APP_SHELL = [
   './',
@@ -11,7 +11,7 @@ const APP_SHELL = [
 ];
 
 // ================================
-// INSTALACIÓN
+// INSTALL
 // ================================
 self.addEventListener('install', (event) => {
   event.waitUntil(
@@ -22,38 +22,37 @@ self.addEventListener('install', (event) => {
 });
 
 // ================================
-// ACTIVACIÓN
+// ACTIVATE
 // ================================
 self.addEventListener('activate', (event) => {
   event.waitUntil(
     caches.keys()
-      .then((keys) =>
-        Promise.all(
+      .then((keys) => {
+        return Promise.all(
           keys
             .filter((key) => key !== CACHE_NAME)
             .map((key) => caches.delete(key))
-        )
-      )
+        );
+      })
       .then(() => self.clients.claim())
   );
 });
 
 // ================================
-// PETICIONES
+// FETCH
 // ================================
 self.addEventListener('fetch', (event) => {
   const request = event.request;
 
-  // Solo manejamos GET
   if (request.method !== 'GET') return;
 
-  // ----------------------------
-  // HTML: NETWORK FIRST
-  // ----------------------------
+  // HTML / navegación:
+  // Internet primero, caché como respaldo
   if (request.mode === 'navigate') {
     event.respondWith(
       fetch(request, { cache: 'no-store' })
         .then((response) => {
+
           if (response.ok) {
             const copy = response.clone();
 
@@ -65,37 +64,32 @@ self.addEventListener('fetch', (event) => {
         })
         .catch(() => {
           return caches.match(request)
-            .then((cached) => cached || caches.match('./index.html'));
+            .then((cached) => {
+              return cached || caches.match('./index.html');
+            });
         })
     );
 
     return;
   }
 
-  // ----------------------------
-  // JS / CSS / IMÁGENES:
-  // CACHE FIRST
-  // ----------------------------
+  // CSS / JS / Manifest / imágenes
+  // Internet primero, caché como respaldo
   event.respondWith(
-    caches.match(request)
-      .then((cached) => {
-        if (cached) {
-          return cached;
+    fetch(request, { cache: 'no-store' })
+      .then((response) => {
+
+        if (response.ok) {
+          const copy = response.clone();
+
+          caches.open(CACHE_NAME)
+            .then((cache) => cache.put(request, copy));
         }
 
-        return fetch(request)
-          .then((response) => {
-            if (!response.ok) {
-              return response;
-            }
-
-            const copy = response.clone();
-
-            caches.open(CACHE_NAME)
-              .then((cache) => cache.put(request, copy));
-
-            return response;
-          });
+        return response;
+      })
+      .catch(() => {
+        return caches.match(request);
       })
   );
 });
