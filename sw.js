@@ -1,6 +1,7 @@
-const CACHE_NAME = 'centinela-v5';
+const CACHE_NAME = 'centinela-v3';
 
 const APP_SHELL = [
+  './',
   './index.html',
   './styles.css',
   './app.js',
@@ -9,68 +10,92 @@ const APP_SHELL = [
   './icon-512.png'
 ];
 
+// ================================
 // INSTALACIÓN
+// ================================
 self.addEventListener('install', (event) => {
   event.waitUntil(
     caches.open(CACHE_NAME)
       .then((cache) => cache.addAll(APP_SHELL))
+      .then(() => self.skipWaiting())
   );
-
-  self.skipWaiting();
 });
 
+// ================================
 // ACTIVACIÓN
+// ================================
 self.addEventListener('activate', (event) => {
   event.waitUntil(
-    caches.keys().then((keys) =>
-      Promise.all(
-        keys
-          .filter((key) => key !== CACHE_NAME)
-          .map((key) => caches.delete(key))
+    caches.keys()
+      .then((keys) =>
+        Promise.all(
+          keys
+            .filter((key) => key !== CACHE_NAME)
+            .map((key) => caches.delete(key))
+        )
       )
-    )
+      .then(() => self.clients.claim())
   );
-
-  self.clients.claim();
 });
 
+// ================================
 // PETICIONES
+// ================================
 self.addEventListener('fetch', (event) => {
   const request = event.request;
 
-  // Para HTML: primero Internet
+  // Solo manejamos GET
+  if (request.method !== 'GET') return;
+
+  // ----------------------------
+  // HTML: NETWORK FIRST
+  // ----------------------------
   if (request.mode === 'navigate') {
     event.respondWith(
-      fetch(request)
+      fetch(request, { cache: 'no-store' })
         .then((response) => {
-          const clone = response.clone();
+          if (response.ok) {
+            const copy = response.clone();
 
-          caches.open(CACHE_NAME).then((cache) => {
-            cache.put(request, clone);
-          });
+            caches.open(CACHE_NAME)
+              .then((cache) => cache.put(request, copy));
+          }
 
           return response;
         })
-        .catch(() => caches.match(request))
+        .catch(() => {
+          return caches.match(request)
+            .then((cached) => cached || caches.match('./index.html'));
+        })
     );
 
     return;
   }
 
-  // Para CSS, JS, imágenes, etc.
+  // ----------------------------
+  // JS / CSS / IMÁGENES:
+  // CACHE FIRST
+  // ----------------------------
   event.respondWith(
-    caches.match(request).then((cached) => {
-      return cached || fetch(request).then((response) => {
-        if (response.ok && request.method === 'GET') {
-          const clone = response.clone();
-
-          caches.open(CACHE_NAME).then((cache) => {
-            cache.put(request, clone);
-          });
+    caches.match(request)
+      .then((cached) => {
+        if (cached) {
+          return cached;
         }
 
-        return response;
-      });
-    })
+        return fetch(request)
+          .then((response) => {
+            if (!response.ok) {
+              return response;
+            }
+
+            const copy = response.clone();
+
+            caches.open(CACHE_NAME)
+              .then((cache) => cache.put(request, copy));
+
+            return response;
+          });
+      })
   );
 });
