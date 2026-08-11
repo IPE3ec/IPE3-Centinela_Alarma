@@ -28,13 +28,18 @@
     statusChar: null,
     connected: false,
     connecting: false,
+    reconnecting: false,
+    reconnectAttempts: 0,
     vehicle: {
       armed: true,
       locked: true,
       engine: false,
       doorOpen: false,
       parked: true,
-      battery: 12.6,
+      battery: null,
+      motorTemp: null,
+      fuel: null,
+      gpsSignal: null,
       windowL: 35,
       windowR: 35,
       lights: {}
@@ -64,8 +69,36 @@
     if (el) el.textContent = "justo ahora";
   }
 
-  // ======================== NAVEGACIÓN ENTRE PANTALLAS ========================
+  // Registro de actividad REAL: solo se agregan eventos que de verdad ocurrieron
+  // (conexión/desconexión, armado, seguros, comandos confirmados por el vehículo).
+  function addActivityEvent(title, tone = "ok") {
+    const feed = $("eventFeed");
+    if (!feed) return;
+    const empty = $("eventFeedEmpty");
+    if (empty) empty.remove();
 
+    const now = new Date();
+    const time = now.toLocaleTimeString("es-EC", { hour: "2-digit", minute: "2-digit" });
+
+    const iconPaths = {
+      ok: '<path d="M5 13l4 4L19 7"/>',
+      warn: '<path d="M12 9v4M12 17h.01M10.3 3.9L2.5 17a2 2 0 001.7 3h15.6a2 2 0 001.7-3L13.7 3.9a2 2 0 00-3.4 0z"/>',
+      danger: '<circle cx="12" cy="12" r="9"/><path d="M9 9l6 6M15 9l-6 6"/>'
+    };
+
+    const div = document.createElement("div");
+    div.className = "event";
+    div.innerHTML = `<div class="event-icon ${tone}"><svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round">${iconPaths[tone] || iconPaths.ok}</svg></div><div class="event-body"><div class="event-title"></div><div class="event-time">Hoy · ${time}</div></div>`;
+    div.querySelector(".event-title").textContent = title;
+    feed.insertBefore(div, feed.firstChild);
+
+    // Mantener como máximo 12 eventos visibles
+    const events = feed.querySelectorAll(".event");
+    if (events.length > 12) events[events.length - 1].remove();
+  }
+
+  // ======================== NAVEGACIÓN ENTRE PANTALLAS ========================
+  
 function goToScreen(name) {
   const current = document.querySelector(".screen.active");
   const next = document.querySelector(`.screen[data-screen="${name}"]`);
@@ -146,6 +179,7 @@ function goToScreen(name) {
 
         Vehicle.updateConnectionUI();
         showToast("Teléfono conectado al vehículo", "ok");
+        addActivityEvent("Teléfono vinculado por Bluetooth", "ok");
         return true;
       } catch (err) {
         console.error(err);
@@ -162,8 +196,58 @@ function goToScreen(name) {
       state.connected = false;
       state.cmdChar = null;
       state.statusChar = null;
-      Vehicle.updateConnectionUI();
       showToast("Se perdió la conexión con el vehículo", "warn");
+      addActivityEvent("Se perdió la conexión Bluetooth", "warn");
+      Vehicle.attemptReconnect();
+    },
+
+    async attemptReconnect() {
+      // Reintenta automáticamente sin pedir de nuevo el selector de dispositivos,
+      // usando el mismo objeto "device" ya autorizado en esta sesión.
+      if (!state.device || state.connecting || state.connected) {
+        Vehicle.updateConnectionUI();
+        return;
+      }
+      state.reconnecting = true;
+      state.reconnectAttempts = 0;
+      Vehicle.updateConnectionUI();
+
+      const maxAttempts = 5;
+      const tryOnce = async () => {
+        if (state.connected || !state.reconnecting) return;
+        state.reconnectAttempts++;
+        try {
+          const server = await state.device.gatt.connect();
+          const service = await server.getPrimaryService(SERVICE_UUID);
+          const cmdChar = await service.getCharacteristic(CMD_UUID);
+          const statusChar = await service.getCharacteristic(STATUS_UUID);
+          await statusChar.startNotifications();
+          statusChar.addEventListener("characteristicvaluechanged", Vehicle.onStatusNotify);
+
+          state.server = server;
+          state.cmdChar = cmdChar;
+          state.statusChar = statusChar;
+          state.connected = true;
+          state.reconnecting = false;
+
+          try {
+            const val = await statusChar.readValue();
+            Vehicle.applyStatus(val);
+          } catch (_) {}
+
+          Vehicle.updateConnectionUI();
+          showToast("Vehículo reconectado", "ok");
+        } catch (err) {
+          if (state.reconnectAttempts < maxAttempts && state.reconnecting) {
+            setTimeout(tryOnce, 2500);
+          } else {
+            state.reconnecting = false;
+            Vehicle.updateConnectionUI();
+            showToast("No se pudo reconectar. Toca para vincular de nuevo.", "warn");
+          }
+        }
+      };
+      tryOnce();
     },
 
     onStatusNotify(event) {
@@ -171,61 +255,64 @@ function goToScreen(name) {
     },
 
     applyStatus(dataView) {
-      try {
-        const text = new TextDecoder().decode(dataView.buffer ? dataView : dataView.value);
-        const data = JSON.parse(text);
+try {
+const text = new TextDecoder().decode(dataView.buffer ? dataView : dataView.value);
+const data = JSON.parse(text);
+         
+// ✅ VALIDACIÓN AGREGADA
+const required = ['armed', 'locked', 'engine', 'battery'];
+if (!required.every(k => typeof data[k] !== 'undefined')) {
+throw new Error('Datos BLE inválidos: faltan campos requeridos');
+}
+         
+Object.assign(state.vehicle, {
+armed: !!data.armed,
+locked: !!data.locked,
+engine: !!data.engine,
+doorOpen: !!data.doorOpen,
+parked: !!data.parked,
+battery: typeof data.battery === "number" ? data.battery : state.vehicle.battery,
+motorTemp: typeof data.motorTemp === "number" ? data.motorTemp : state.vehicle.motorTemp,
+fuel: typeof data.fuel === "number" ? data.fuel : state.vehicle.fuel,
+gpsSignal: typeof data.gpsSignal === "string" ? data.gpsSignal : state.vehicle.gpsSignal,
+windowL: typeof data.windowL === "number" ? data.windowL : state.vehicle.windowL,
+windowR: typeof data.windowR === "number" ? data.windowR : state.vehicle.windowR,
+lights: data.lights || state.vehicle.lights
+});
+if (data.ack && data.message) {
+showToast(data.message, data.ok ? "ok" : "warn");
+}
+Vehicle.updateVehicleUI();
+setLastActivity();
+} catch (e) {
+console.warn("Estado BLE ilegible:", e);
+}
+},
 
-        // Validación de campos requeridos
-        const required = ['armed', 'locked', 'engine', 'battery'];
-        if (!required.every(k => typeof data[k] !== 'undefined')) {
-          throw new Error('Datos BLE inválidos: faltan campos requeridos');
-        }
-
-        Object.assign(state.vehicle, {
-          armed: !!data.armed,
-          locked: !!data.locked,
-          engine: !!data.engine,
-          doorOpen: !!data.doorOpen,
-          parked: !!data.parked,
-          battery: typeof data.battery === "number" ? data.battery : state.vehicle.battery,
-          windowL: typeof data.windowL === "number" ? data.windowL : state.vehicle.windowL,
-          windowR: typeof data.windowR === "number" ? data.windowR : state.vehicle.windowR,
-          lights: data.lights || state.vehicle.lights
-        });
-        if (data.ack && data.message) {
-          showToast(data.message, data.ok ? "ok" : "warn");
-        }
-        Vehicle.updateVehicleUI();
-        setLastActivity();
-      } catch (e) {
-        console.warn("Estado BLE ilegible:", e);
-      }
-    },
-
-    async send(cmd, okLabel) {
-      if (!state.connected || !state.cmdChar) {
-        const ok = await Vehicle.connect();
-        if (!ok || !state.cmdChar) {
-          showToast("Vincula tu teléfono primero", "warn");
-          return false;
-        }
-      }
-      try {
-        // Nonce y timestamp para evitar replay de comandos
-        const nonce = Math.random().toString(36).slice(2, 11);
-        const timestamp = Date.now();
-        const secureCmd = `${cmd}|${nonce}|${timestamp}`;
-
-        await state.cmdChar.writeValue(new TextEncoder().encode(secureCmd));
-        if (okLabel) showToast(okLabel, "ok");
-        setLastActivity();
-        return true;
-      } catch (err) {
-        console.error(err);
-        showToast("No se pudo enviar el comando", "warn");
-        return false;
-      }
-    },
+   async send(cmd, okLabel) {
+if (!state.connected || !state.cmdChar) {
+const ok = await Vehicle.connect();
+         if (!ok || !state.cmdChar) {
+           showToast("Vincula tu teléfono primero", "warn");
+           return false;
+         }
+       }
+       try {
+         // ✅ AGREGAR NONCE Y TIMESTAMP
+         const nonce = Math.random().toString(36).slice(2, 11);
+         const timestamp = Date.now();
+         const secureCmd = `${cmd}|${nonce}|${timestamp}`;
+         
+         await state.cmdChar.writeValue(new TextEncoder().encode(secureCmd));
+         if (okLabel) showToast(okLabel, "ok");
+         setLastActivity();
+         return true;
+       } catch (err) {
+         console.error(err);
+         showToast("No se pudo enviar el comando", "warn");
+         return false;
+       }
+     },
     updateConnectionUI() {
       const pill = $("statusPill");
       const dot = $("statusDot");
@@ -235,14 +322,24 @@ function goToScreen(name) {
       const beam = $("beam");
 
       if (state.connected) {
-        pill?.classList.add("connected");
+        pill?.classList.add("on");
+        pill?.classList.remove("warn");
         dot?.classList.add("on");
         if (pillText) pillText.textContent = "Conectado";
         if (keyTitle) keyTitle.textContent = "Vinculado con el vehículo";
         if (keySub) keySub.textContent = "Bluetooth activo";
         if (beam) beam.style.opacity = "1";
+      } else if (state.reconnecting) {
+        pill?.classList.remove("on");
+        pill?.classList.add("warn");
+        dot?.classList.remove("on");
+        if (pillText) pillText.textContent = "Reconectando…";
+        if (keyTitle) keyTitle.textContent = "Reconectando con el vehículo…";
+        if (keySub) keySub.textContent = "Bluetooth";
+        if (beam) beam.style.opacity = ".6";
       } else {
-        pill?.classList.remove("connected");
+        pill?.classList.remove("on");
+        pill?.classList.remove("warn");
         dot?.classList.remove("on");
         if (pillText) pillText.textContent = "Sin conexión";
         if (keyTitle) keyTitle.textContent = "Toca para vincular por Bluetooth";
@@ -266,19 +363,29 @@ function goToScreen(name) {
       $("lockBtnClosed")?.classList.toggle("active", v.locked);
       $("lockBtnOpen")?.classList.toggle("active", !v.locked);
 
-      // Vidrios
-      const glassL = $("glassL"), glassR = $("glassR");
-      const pctL = $("pctL"), pctR = $("pctR");
-      if (glassL) glassL.style.height = v.windowL + "%";
-      if (glassR) glassR.style.height = v.windowR + "%";
-      if (pctL) pctL.textContent = v.windowL + "%";
-      if (pctR) pctR.textContent = v.windowR + "%";
-
       // Luces
       document.querySelectorAll(".light-item").forEach(btn => {
         const id = btn.dataset.id;
-        btn.classList.toggle("active", !!v.lights[id]);
+        btn.classList.toggle("on", !!v.lights[id]);
       });
+
+      // Estadísticas (solo se muestran si el vehículo las reportó; si no, "—")
+      const fmt = (val, unit, cls) => {
+        const el = $(cls);
+        if (!el) return;
+        if (val === null || typeof val === "undefined") {
+          el.textContent = "—";
+          el.className = "stat-value";
+        } else {
+          el.innerHTML = `${val}<span class="stat-unit">${unit}</span>`;
+          el.className = "stat-value ok";
+        }
+      };
+      fmt(v.battery, "V", "statBattery");
+      fmt(v.motorTemp, "°C", "statMotorTemp");
+      fmt(v.fuel, "%", "statFuel");
+      const gpsEl = $("statGps");
+      if (gpsEl) gpsEl.textContent = v.gpsSignal || "—";
     }
   };
 
@@ -308,16 +415,22 @@ function goToScreen(name) {
 
   window.setLock = function (closed) {
     Vehicle.send(closed ? "LOCK" : "UNLOCK", closed ? "Seguros cerrados" : "Seguros abiertos");
+    addActivityEvent(closed ? "Seguros cerrados" : "Seguros abiertos", "ok");
   };
 
   window.moveWindow = function (side, delta) {
     const dir = delta > 0 ? "UP" : "DOWN";
     const cmd = "WIN_" + side + "_" + dir;
-    Vehicle.send(cmd);
+    const label = (side === "L" ? "delanteros" : "traseros") + " " + (delta > 0 ? "subiendo" : "bajando");
+    Vehicle.send(cmd, "Vidrios " + label);
   };
 
   window.toggleLight = function (id) {
     const isOn = !!state.vehicle.lights[id];
+    // Actualización optimista: refleja el cambio de inmediato en la UI.
+    // Si el vehículo confirma otro estado (applyStatus), se corrige solo.
+    state.vehicle.lights[id] = !isOn;
+    Vehicle.updateVehicleUI();
     Vehicle.send("LIGHT:" + id + ":" + (isOn ? "OFF" : "ON"));
   };
 
@@ -325,28 +438,88 @@ function goToScreen(name) {
     Vehicle.send(cmd, label);
   };
 
+  // Vinculación de cámara WiFi: estructura base. El protocolo real de
+  // aprovisionamiento (SmartConfig, AP local, QR, etc.) depende del
+  // fabricante/modelo de la cámara y debe implementarse aquí.
+  window.pairCameraWifi = function () {
+    showToast("Vinculación de cámara WiFi: función en desarrollo", "warn");
+    addActivityEvent("Se intentó vincular una cámara WiFi (no implementado)", "warn");
+  };
+
   window.confirmStop = function () {
     if (!confirm("¿Apagar el motor de forma remota? Solo funciona con el vehículo detenido.")) return;
     Vehicle.send("STOP_ENGINE", "Motor apagado");
   };
 
+  // Maletero: requiere mantener presionado 30 segundos seguidos para abrir.
+  function initTrunkHold() {
+    const btn = $("trunkBtn");
+    const label = $("trunkBtnLabel");
+    if (!btn || !label) return;
+    const HOLD_MS = 30000;
+    let holdTimer = null;
+    let tickTimer = null;
+    let startedAt = 0;
+
+    const reset = () => {
+      clearTimeout(holdTimer);
+      clearInterval(tickTimer);
+      btn.style.background = "";
+      label.textContent = "Mantén presionado 30s";
+    };
+
+    const start = (e) => {
+      e.preventDefault();
+      startedAt = Date.now();
+      tickTimer = setInterval(() => {
+        const elapsed = Date.now() - startedAt;
+        const pct = Math.min(100, (elapsed / HOLD_MS) * 100);
+        btn.style.background = `linear-gradient(90deg, var(--accent-dim) ${pct}%, var(--surface) ${pct}%)`;
+        const secsLeft = Math.ceil((HOLD_MS - elapsed) / 1000);
+        label.textContent = secsLeft > 0 ? `Manteniendo… ${secsLeft}s` : "¡Listo!";
+      }, 100);
+      holdTimer = setTimeout(() => {
+        clearInterval(tickTimer);
+        Vehicle.send("TRUNK", "Maletero abierto");
+        addActivityEvent("Maletero abierto", "ok");
+        reset();
+      }, HOLD_MS);
+    };
+
+    const cancel = () => {
+      if (!holdTimer) return;
+      const wasHolding = Date.now() - startedAt < HOLD_MS;
+      reset();
+      if (wasHolding && startedAt) {
+        showToast("Suelta antes de tiempo — mantén presionado los 30s completos", "warn");
+      }
+      startedAt = 0;
+    };
+
+    btn.addEventListener("pointerdown", start);
+    btn.addEventListener("pointerup", cancel);
+    btn.addEventListener("pointerleave", cancel);
+    btn.addEventListener("pointercancel", cancel);
+  }
+
   function initShieldButton() {
     $("shieldBtn")?.addEventListener("click", () => {
       const willArm = !state.vehicle.armed;
       Vehicle.send(willArm ? "ARM" : "DISARM", willArm ? "Vehículo armado" : "Vehículo desarmado");
+      addActivityEvent(willArm ? "Sistema armado manualmente" : "Sistema desarmado manualmente", "ok");
     });
   }
 
   // ======================== BLOQUEO DE APP (AppLock) ========================
   const LOCK_KEY = "centinela_lock_cfg";
-
-  function loadLockCfg() {
-    try { return JSON.parse(sessionStorage.getItem(LOCK_KEY)) || {}; }
-    catch (_) { return {}; }
-  }
-  function saveLockCfg(cfg) {
-    sessionStorage.setItem(LOCK_KEY, JSON.stringify(cfg));
-  }
+ 
+function loadLockCfg() {
+try { return JSON.parse(sessionStorage.getItem(LOCK_KEY)) || {}; }
+catch (_) { return {}; }
+}
+function saveLockCfg(cfg) {
+sessionStorage.setItem(LOCK_KEY, JSON.stringify(cfg));
+}
 
   const AppLock = {
     cfg: loadLockCfg(),
@@ -682,6 +855,7 @@ function goToScreen(name) {
   document.addEventListener("DOMContentLoaded", () => {
     initNavigation();
     initShieldButton();
+    initTrunkHold();
     Vehicle.updateConnectionUI();
     Vehicle.updateVehicleUI();
     Proximity.init();
