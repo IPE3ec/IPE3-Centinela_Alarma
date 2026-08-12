@@ -1,5 +1,5 @@
 // ========================================
-// CENTINELA - PWA v3.0 (CORREGIDA)
+// CENTINELA - PWA v3.0
 // ========================================
 
 // ==================== CONSTANTES ====================
@@ -34,7 +34,6 @@ let pinMode = 'unlock';
 let pinConfirmBuffer = '';
 let pinCallback = null;
 let proximityInterval = null;
-let countdownInterval = null;
 let trunkPressTimer = null;
 let audioContext = null;
 
@@ -79,7 +78,7 @@ function checkFirstRun() {
     }
 }
 
-// ==================== AUDIO (SONIDOS PWA) ====================
+// ==================== AUDIO ====================
 function initAudio() {
     try {
         audioContext = new (window.AudioContext || window.webkitAudioContext)();
@@ -128,9 +127,6 @@ function playSound(type) {
                 duration = 0.15;
                 break;
             case 'alert':
-                frequency = 800;
-                duration = 0.3;
-                // Hacer sonido de alerta (dos tonos)
                 playAlertSound();
                 return;
             default:
@@ -153,9 +149,7 @@ function playSound(type) {
 
 function playAlertSound() {
     try {
-        // Dos tonos rápidos
-        const frequencies = [800, 1000];
-        frequencies.forEach((freq, i) => {
+        [800, 1000].forEach((freq, i) => {
             const osc = audioContext.createOscillator();
             const gain = audioContext.createGain();
             osc.connect(gain);
@@ -175,14 +169,11 @@ function playAlertSound() {
 function navigateTo(screenId) {
     document.querySelectorAll('.screen').forEach(screen => {
         screen.classList.remove('active');
-        screen.classList.remove('entering');
     });
 
     const target = document.getElementById(`screen-${screenId}`);
     if (target) {
         target.classList.add('active');
-        target.classList.add('entering');
-        setTimeout(() => target.classList.remove('entering'), 300);
     }
 
     document.querySelectorAll('.tab').forEach(tab => {
@@ -328,9 +319,8 @@ function handleStatusUpdate(event) {
     }
 }
 
-// ==================== ACTUALIZACIÓN DE UI ====================
+// ==================== ACTUALIZACIÓN UI ====================
 function updateUI(data) {
-    // Escudo
     const shieldBtn = document.getElementById('shieldBtn');
     const shieldLabel = document.getElementById('shieldLabel');
     const shieldSubState = document.getElementById('shieldSubState');
@@ -347,7 +337,6 @@ function updateUI(data) {
         document.querySelector('.app').setAttribute('data-armed', 'false');
     }
 
-    // Stats
     if (data.battery !== undefined) {
         document.getElementById('statBattery').textContent = `${data.battery}V`;
     }
@@ -366,13 +355,11 @@ function updateUI(data) {
         document.getElementById('statGps').textContent = `${satellites}/12`;
     }
 
-    // Seguros
     if (data.locked !== undefined) {
         document.getElementById('lockBtnClosed').classList.toggle('active', data.locked);
         document.getElementById('lockBtnOpen').classList.toggle('active', !data.locked);
     }
 
-    // Vidrios
     if (data.windowL !== undefined) {
         document.getElementById('windowLPct').textContent = `${data.windowL}%`;
     }
@@ -380,14 +367,12 @@ function updateUI(data) {
         document.getElementById('windowRPct').textContent = `${data.windowR}%`;
     }
 
-    // Alarma
     if (data.alarmTriggered) {
         showToast('🚨 ¡ALARMA DISPARADA!', 'error');
         playSound('alert');
         document.getElementById('shieldSubState').textContent = '🚨 ALARMA!';
     }
 
-    // Actividad reciente
     updateRecentActivity(data);
 }
 
@@ -440,8 +425,6 @@ function updateRecentActivity(data) {
 }
 
 // ==================== COMANDOS ====================
-
-// ARM/DISARM
 async function toggleArm() {
     if (!isConnected) {
         showToast('⚠️ Conéctate al vehículo primero', 'error');
@@ -465,7 +448,6 @@ async function toggleArm() {
     }
 }
 
-// Seguros
 async function setLock(locked) {
     if (!isConnected) {
         showToast('⚠️ Conéctate al vehículo primero', 'error');
@@ -478,7 +460,6 @@ async function setLock(locked) {
     showToast(locked ? '🔒 Seguros cerrados' : '🔓 Seguros abiertos');
 }
 
-// Vidrios
 async function moveWindow(side, amount) {
     if (!isConnected) {
         showToast('⚠️ Conéctate al vehículo primero', 'error');
@@ -493,7 +474,6 @@ async function moveWindow(side, amount) {
     showToast(`Vidrio ${side === 'L' ? 'izquierdo' : 'derecho'} ${direction === 'UP' ? 'subiendo' : 'bajando'}`);
 }
 
-// Luces
 async function toggleLight(lightId) {
     if (!isConnected) {
         showToast('⚠️ Conéctate al vehículo primero', 'error');
@@ -512,14 +492,13 @@ async function toggleLight(lightId) {
 function getLightName(id) {
     const names = {
         'LOWBEAM': 'Bajas', 'HIGHBEAM': 'Altas',
-        'TURN_L': 'Direccional izq.', 'TURN_R': 'Direccional der.',
+        'TURN_L': 'Direcc. izq.', 'TURN_R': 'Direcc. der.',
         'BRAKE': 'Freno', 'REVERSE': 'Reversa',
         'FOG': 'Antiniebla', 'PARK': 'Parqueo'
     };
     return names[id] || id;
 }
 
-// Comandos generales
 async function sendCmd(cmd, msg) {
     if (!isConnected) {
         showToast('⚠️ Conéctate al vehículo primero', 'error');
@@ -531,7 +510,7 @@ async function sendCmd(cmd, msg) {
     showToast(msg);
 }
 
-// ==================== MALETERO CON ANIMACIÓN ====================
+// ==================== MALETERO ====================
 function startTrunkPress(e) {
     const label = document.getElementById('trunkBtnLabel');
     const btn = document.getElementById('trunkBtn');
@@ -545,7 +524,6 @@ function startTrunkPress(e) {
         progress += interval;
         const percent = Math.min(100, (progress / totalTime) * 100);
         
-        // Animación de progreso circular
         const degrees = (percent / 100) * 360;
         btn.style.background = `conic-gradient(var(--accent) ${percent}%, var(--surface) ${percent}%)`;
         
@@ -600,10 +578,9 @@ async function findCar() {
     
     await sendBLECommand('HORN');
     
-    // Parpadear luces
     const lights = ['LOWBEAM', 'HIGHBEAM', 'TURN_L', 'TURN_R'];
     let count = 0;
-    const maxFlashes = 12; // 6 segundos (12 flashes)
+    const maxFlashes = 12;
     
     const flashInterval = setInterval(async () => {
         if (count >= maxFlashes) {
@@ -642,9 +619,7 @@ function confirmStop() {
     }
 }
 
-// ==================== VINCULACIÓN SEGURA ====================
-
-// Vincular teléfono nuevo - CON VERIFICACIÓN
+// ==================== VINCULACIÓN ====================
 async function pairNewPhone() {
     if (!isConnected) {
         showToast('⚠️ Conéctate al vehículo primero', 'error');
@@ -652,14 +627,12 @@ async function pairNewPhone() {
         return;
     }
     
-    // Verificar autenticación
     const auth = await checkAuth();
     if (!auth) {
         showToast('⚠️ Autenticación requerida', 'error');
         return;
     }
     
-    // Verificar límite
     if (deviceState.bondedCount >= deviceState.maxBonded) {
         showToast(`❌ Límite de ${deviceState.maxBonded} teléfonos alcanzado`, 'error');
         playSound('error');
@@ -669,10 +642,9 @@ async function pairNewPhone() {
     await sendBLECommand('PAIR_MODE');
     playSound('confirm');
     showToast('🔓 Modo vinculación abierto por 60 segundos', 'success');
-    showToast('📱 Abre la app en el otro teléfono y busca Centinela', 'info');
+    showToast('📱 Abre la app en el otro teléfono', 'info');
 }
 
-// Olvidar todos los teléfonos - CON VERIFICACIÓN DOBLE
 async function forgetPhonesSecure() {
     if (!isConnected) {
         showToast('⚠️ Conéctate al vehículo primero', 'error');
@@ -680,33 +652,28 @@ async function forgetPhonesSecure() {
         return;
     }
     
-    // Primera verificación: autenticación
     const auth = await checkAuth();
     if (!auth) {
         showToast('⚠️ Autenticación requerida', 'error');
         return;
     }
     
-    // Segunda verificación: confirmación del usuario
     if (!confirm('⚠️ ¿ELIMINAR TODOS los teléfonos vinculados?\n\nEsta acción:\n• Eliminará TODOS los dispositivos\n• Liberará los 2 espacios\n• Requerirá volver a vincular todos los teléfonos\n\n¿Estás seguro?')) {
         showToast('⏹️ Operación cancelada', 'info');
         return;
     }
     
-    // Tercera verificación: confirmación adicional (seguridad)
-    if (!confirm('🔒 Confirmación final: ¿Estás ABSOLUTAMENTE seguro de eliminar todos los teléfonos? Esta acción NO se puede deshacer.')) {
+    if (!confirm('🔒 Confirmación final: ¿Estás ABSOLUTAMENTE seguro?')) {
         showToast('⏹️ Operación cancelada', 'info');
         return;
     }
     
     await sendBLECommand('FORGET_PHONES');
     playSound('confirm');
-    showToast('🗑️ Todos los teléfonos han sido eliminados', 'warning');
-    showToast('📱 Ahora puedes vincular nuevos teléfonos', 'info');
+    showToast('🗑️ Todos los teléfonos eliminados', 'warning');
 }
 
 // ==================== AUTENTICACIÓN ====================
-
 async function checkAuth() {
     const pinHash = localStorage.getItem(PIN_STORAGE_KEY);
     const bioEnabled = localStorage.getItem('biometricEnabled') === 'true';
@@ -717,7 +684,6 @@ async function checkAuth() {
     }
     
     if (bioEnabled && window.PublicKeyCredential) {
-        // Intentar autenticación biométrica
         try {
             const result = await authenticateBiometric();
             if (result) {
@@ -729,7 +695,6 @@ async function checkAuth() {
         }
     }
     
-    // Fallback a PIN
     return new Promise((resolve) => {
         const overlay = document.getElementById('lockOverlay');
         overlay.hidden = false;
@@ -748,8 +713,7 @@ async function checkAuth() {
     });
 }
 
-// ==================== BIOMETRÍA (HUELLA) - FUNCIONAL ====================
-
+// ==================== BIOMETRÍA ====================
 async function registerBiometric() {
     if (!window.PublicKeyCredential) {
         showToast('❌ Tu dispositivo no soporta biometría', 'error');
@@ -759,7 +723,6 @@ async function registerBiometric() {
     try {
         showToast('📱 Escanea tu huella o rostro', 'info');
         
-        // Crear credencial
         const publicKey = {
             challenge: new Uint8Array(32),
             rp: { name: 'Centinela' },
@@ -829,7 +792,6 @@ async function tryBiometricUnlock() {
 }
 
 // ==================== PIN ====================
-
 function openPinSetup() {
     const overlay = document.getElementById('pinOverlay');
     overlay.hidden = false;
@@ -863,7 +825,6 @@ function closePinOverlay() {
 }
 
 function pinPress(num) {
-    const pinHash = localStorage.getItem(PIN_STORAGE_KEY);
     const dots = document.querySelectorAll('#pinDots span');
     const errorEl = document.getElementById('pinError');
     
@@ -902,7 +863,6 @@ function pinPress(num) {
         return;
     }
     
-    // Modo unlock
     if (pinMode === 'unlock') {
         pinBuffer += num;
         dots[pinBuffer.length - 1].textContent = '●';
@@ -1039,10 +999,9 @@ function toggleSensor(sensor, el) {
     localStorage.setItem(`sensor_${sensor}`, isOn ? 'true' : 'false');
 }
 
-// ==================== USUARIOS Y CÓDIGO DE EMERGENCIA ====================
+// ==================== USUARIOS Y EMERGENCIA ====================
 function openUsers() {
     showToast('👥 Gestión de usuarios y permisos', 'info');
-    // Simulación
     setTimeout(() => {
         showToast('👤 Conductor 1: Admin\n👤 Conductor 2: Estándar', 'info');
     }, 500);
@@ -1074,67 +1033,6 @@ async function pairCameraWifi() {
             showToast('⏹️ Búsqueda cancelada', 'info');
         }
     }, 3000);
-}
-
-// ==================== VIDRIOS AUTO ====================
-let windowAutoMode = false;
-let windowAutoTimer = null;
-
-function toggleWindowAuto() {
-    windowAutoMode = !windowAutoMode;
-    const btn = document.getElementById('windowAutoBtn');
-    if (btn) {
-        btn.classList.toggle('active', windowAutoMode);
-        btn.textContent = windowAutoMode ? '🌡️ AUTO ACTIVADO' : '🌡️ AUTO';
-    }
-    
-    if (windowAutoMode) {
-        showToast('🌡️ Modo automático de vidrios activado', 'success');
-        playSound('confirm');
-        startWindowAuto();
-    } else {
-        showToast('🌡️ Modo automático desactivado', 'info');
-        stopWindowAuto();
-    }
-}
-
-function startWindowAuto() {
-    if (windowAutoTimer) clearInterval(windowAutoTimer);
-    
-    let internalTemp = 25;
-    let externalTemp = 30;
-    
-    windowAutoTimer = setInterval(() => {
-        internalTemp += (Math.random() - 0.5) * 2;
-        externalTemp += (Math.random() - 0.5) * 2;
-        
-        internalTemp = Math.max(15, Math.min(45, internalTemp));
-        externalTemp = Math.max(10, Math.min(45, externalTemp));
-        
-        if (internalTemp > externalTemp + 5) {
-            if (deviceState.windowL > 20) {
-                sendBLECommand('WIN_L_DOWN');
-                deviceState.windowL = Math.max(0, deviceState.windowL - 5);
-            }
-            if (deviceState.windowR > 20) {
-                sendBLECommand('WIN_R_DOWN');
-                deviceState.windowR = Math.max(0, deviceState.windowR - 5);
-            }
-            showToast(`🌡️ ${Math.round(internalTemp)}°C - Bajando vidrios por seguridad`, 'warning');
-        }
-        
-        const tempDisplay = document.getElementById('windowTempDisplay');
-        if (tempDisplay) {
-            tempDisplay.textContent = `🌡️ ${Math.round(internalTemp)}°C / ${Math.round(externalTemp)}°C`;
-        }
-    }, 5000);
-}
-
-function stopWindowAuto() {
-    if (windowAutoTimer) {
-        clearInterval(windowAutoTimer);
-        windowAutoTimer = null;
-    }
 }
 
 // ==================== MAPA ====================
@@ -1260,14 +1158,12 @@ function loadSettings() {
         pinStatus.textContent = pinHash ? '✅ PIN configurado' : 'No configurado';
     }
 
-    // Cargar modos
     ['valet', 'taller', 'ninos'].forEach(mode => {
         const enabled = localStorage.getItem(`mode_${mode}`) === 'true';
         const sw = document.getElementById(`switch${mode.charAt(0).toUpperCase() + mode.slice(1)}`);
         if (sw && enabled) sw.classList.add('on');
     });
 
-    // Cargar sensores
     ['impacto', 'inclinacion'].forEach(sensor => {
         const enabled = localStorage.getItem(`sensor_${sensor}`) === 'true';
         const sw = document.getElementById(`switch${sensor.charAt(0).toUpperCase() + sensor.slice(1)}`);
@@ -1312,7 +1208,6 @@ window.navigateTo = navigateTo;
 window.pairCameraWifi = pairCameraWifi;
 window.pairNewPhone = pairNewPhone;
 window.forgetPhonesSecure = forgetPhonesSecure;
-window.toggleWindowAuto = toggleWindowAuto;
 window.findCar = findCar;
 window.toggleBiometric = toggleBiometric;
 window.registerBiometric = registerBiometric;
