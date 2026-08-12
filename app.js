@@ -39,6 +39,7 @@ let audioContext = null;
 let countdownInterval = null;
 let windowAutoTimer = null;
 let windowAutoMode = false;
+let deferredPrompt = null;
 
 // ==================== INICIALIZACIÓN ====================
 document.addEventListener('DOMContentLoaded', () => {
@@ -47,10 +48,11 @@ document.addEventListener('DOMContentLoaded', () => {
     checkBLEAvailability();
     loadSettings();
     checkFirstRun();
+    registerServiceWorker();
+    setupInstallPrompt();
 });
 
 function initApp() {
-    // Navegación por tabs
     document.querySelectorAll('.tab').forEach(tab => {
         tab.addEventListener('click', (e) => {
             e.preventDefault();
@@ -59,7 +61,6 @@ function initApp() {
         });
     });
 
-    // Navegación por enlaces
     document.querySelectorAll('[data-goto]').forEach(link => {
         link.addEventListener('click', (e) => {
             e.preventDefault();
@@ -80,6 +81,78 @@ function checkFirstRun() {
         document.getElementById('configOverlay').hidden = false;
     } else {
         document.getElementById('configOverlay').hidden = true;
+    }
+}
+
+// ==================== SERVICE WORKER (PWA) ====================
+function registerServiceWorker() {
+    if ('serviceWorker' in navigator) {
+        navigator.serviceWorker.register('./sw.js')
+            .then(registration => {
+                console.log('✅ Service Worker registrado:', registration);
+                registration.addEventListener('updatefound', () => {
+                    const newWorker = registration.installing;
+                    newWorker.addEventListener('statechange', () => {
+                        if (newWorker.state === 'installed' && navigator.serviceWorker.controller) {
+                            showToast('🔄 Nueva versión disponible', 'warning');
+                            if (confirm('¿Actualizar Centinela ahora?')) {
+                                window.location.reload();
+                            }
+                        }
+                    });
+                });
+            })
+            .catch(error => {
+                console.log('❌ Error al registrar Service Worker:', error);
+            });
+    }
+}
+
+function isAppInstalled() {
+    if (window.matchMedia('(display-mode: standalone)').matches) {
+        return true;
+    }
+    if (navigator.standalone) {
+        return true;
+    }
+    return false;
+}
+
+function showInstallPrompt() {
+    const installBtn = document.getElementById('installBtn');
+    if (installBtn && !isAppInstalled()) {
+        installBtn.style.display = 'flex';
+    }
+}
+
+function setupInstallPrompt() {
+    window.addEventListener('beforeinstallprompt', (e) => {
+        e.preventDefault();
+        deferredPrompt = e;
+        showInstallPrompt();
+    });
+
+    window.addEventListener('appinstalled', () => {
+        showToast('✅ Centinela instalado correctamente', 'success');
+        document.getElementById('installBtn').style.display = 'none';
+    });
+}
+
+async function installApp() {
+    if (!deferredPrompt) {
+        showToast('📱 Abre el menú del navegador y selecciona "Instalar app"', 'info');
+        return;
+    }
+    
+    deferredPrompt.prompt();
+    const result = await deferredPrompt.userChoice;
+    deferredPrompt = null;
+    document.getElementById('installBtn').style.display = 'none';
+    
+    if (result.outcome === 'accepted') {
+        showToast('✅ Centinela instalado', 'success');
+    } else {
+        showToast('⏹️ Instalación cancelada', 'info');
     }
 }
 
@@ -246,10 +319,7 @@ async function connectBLE() {
         showToast('✅ Conectado a Centinela', 'success');
         playSound('confirm');
 
-        // Solicitar estado completo
         await sendBLECommand('GET_STATUS');
-        
-        // Solicitar lista de dispositivos vinculados
         await updateBondedDevices();
 
     } catch (error) {
@@ -319,14 +389,9 @@ function handleStatusUpdate(event) {
         const data = JSON.parse(jsonString);
         
         console.log('📥 Estado recibido:', data);
-        
-        // Actualizar estado
         Object.assign(deviceState, data);
-        
-        // Actualizar UI
         updateUI(data);
         
-        // Si hay dispositivos vinculados en la respuesta, actualizar UI
         if (data.bondedDevices) {
             console.log('📱 Dispositivos vinculados:', data.bondedDevices);
             updateBondedUI(data.bondedDevices, data.bondedCount, data.maxBonded);
@@ -339,7 +404,6 @@ function handleStatusUpdate(event) {
 
 // ==================== ACTUALIZACIÓN DE UI ====================
 function updateUI(data) {
-    // Escudo
     const shieldBtn = document.getElementById('shieldBtn');
     const shieldLabel = document.getElementById('shieldLabel');
     const shieldSubState = document.getElementById('shieldSubState');
@@ -356,7 +420,6 @@ function updateUI(data) {
         document.querySelector('.app').setAttribute('data-armed', 'false');
     }
 
-    // Stats
     if (data.battery !== undefined) {
         document.getElementById('statBattery').textContent = `${data.battery}V`;
     }
@@ -375,13 +438,11 @@ function updateUI(data) {
         document.getElementById('statGps').textContent = `${satellites}/12`;
     }
 
-    // Seguros
     if (data.locked !== undefined) {
         document.getElementById('lockBtnClosed').classList.toggle('active', data.locked);
         document.getElementById('lockBtnOpen').classList.toggle('active', !data.locked);
     }
 
-    // Vidrios
     if (data.windowL !== undefined) {
         document.getElementById('windowLPct').textContent = `${data.windowL}%`;
     }
@@ -389,14 +450,12 @@ function updateUI(data) {
         document.getElementById('windowRPct').textContent = `${data.windowR}%`;
     }
 
-    // Alarma
     if (data.alarmTriggered) {
         showToast('🚨 ¡ALARMA DISPARADA!', 'error');
         playSound('alert');
         document.getElementById('shieldSubState').textContent = '🚨 ALARMA!';
     }
 
-    // Puerta
     if (data.doorOpen !== undefined) {
         const statusEl = document.querySelector('.shield-sub b:last-child');
         if (statusEl) {
@@ -404,7 +463,6 @@ function updateUI(data) {
         }
     }
 
-    // Actividad reciente
     updateRecentActivity(data);
 }
 
@@ -464,7 +522,6 @@ function updateBondedUI(devices, count, max) {
         statusText.textContent = 'Conectado';
     }
     
-    // Actualizar subtítulo del key link
     const sub = document.getElementById('keyLinkSub');
     if (sub && isConnected) {
         if (count > 0) {
@@ -733,8 +790,6 @@ async function forgetPhonesSecure() {
     await sendBLECommand('FORGET_PHONES');
     playSound('confirm');
     showToast('🗑️ Todos los teléfonos eliminados', 'warning');
-    
-    // Actualizar lista
     setTimeout(() => updateBondedDevices(), 1000);
 }
 
@@ -1349,5 +1404,6 @@ window.openUsers = openUsers;
 window.openEmergencyCode = openEmergencyCode;
 window.updateBondedDevices = updateBondedDevices;
 window.toggleWindowAuto = toggleWindowAuto;
+window.installApp = installApp;
 
 console.log('✅ Centinela PWA v3.0 lista');
