@@ -98,6 +98,27 @@ body {
   letter-spacing: 0.5px;
 }
 
+.brand-version {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 9px;
+  color: var(--text-dim);
+  background: var(--surface-2);
+  padding: 2px 6px;
+  border-radius: 4px;
+  border: 1px solid var(--border);
+  margin-left: 4px;
+}
+
+.version-tag {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 9px;
+  color: var(--text-dim);
+  background: var(--surface-2);
+  padding: 2px 6px;
+  border-radius: 4px;
+  border: 1px solid var(--border);
+}
+
 .status-pill {
   display: flex;
   align-items: center;
@@ -193,6 +214,9 @@ body {
   color: var(--text-dim);
   text-transform: uppercase;
   margin-bottom: 6px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
 }
 
 h1.screen-title {
