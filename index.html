@@ -4,13 +4,13 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
     <meta name="theme-color" content="#0A0D12">
-    <meta name="description" content="Centinela — Control remoto y seguridad de tu vehículo">
+    <meta name="description" content="Centinela v5.0 — Control remoto y seguridad de tu vehículo">
     <meta name="mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-    <meta name="apple-mobile-web-app-title" content="Centinela">
+    <meta name="apple-mobile-web-app-title" content="Centinela v5.0">
 
-    <title>Centinela</title>
+    <title>Centinela v5.0</title>
 
     <!-- PWA -->
     <link rel="manifest" href="./manifest.json">
@@ -40,6 +40,7 @@
                 </svg>
             </div>
             <div class="brand-name">CENTINELA</div>
+            <div class="brand-version">v5.0</div>
         </div>
         <div class="status-pill" id="statusPill" onclick="connectBLE()">
             <span class="dot" id="statusDot"></span>
@@ -52,7 +53,10 @@
 
         <!-- ===================== INICIO ===================== -->
         <section class="screen active" id="screen-inicio" data-screen="inicio">
-            <div class="eyebrow">Mi vehículo · Toyota Corolla 2022</div>
+            <div class="eyebrow">
+                <span id="vehicleNameDisplay">Mi vehículo</span>
+                <span class="version-tag">v5.0</span>
+            </div>
             <h1 class="screen-title">Panel de control</h1>
 
             <div class="shield-wrap">
@@ -67,7 +71,7 @@
                 </button>
             </div>
             <p class="shield-sub">
-                Sistema <b id="shieldSubState">inactivo</b> · puertas <b>cerradas</b>
+                Sistema <b id="shieldSubState">inactivo</b> · puertas <b id="doorStatus">cerradas</b>
             </p>
 
             <div class="grid">
@@ -133,7 +137,7 @@
             <div class="map-card">
                 <div id="map" class="map-geo"></div>
                 <div class="map-badge">
-                    Av. Amazonas y Naciones Unidas · <b id="mapSpeed">0 km/h</b> · <span id="mapStatus">estacionado</span>
+                    <span id="mapAddress">Av. Amazonas y Naciones Unidas</span> · <b id="mapSpeed">0 km/h</b> · <span id="mapStatus">estacionado</span>
                 </div>
             </div>
 
@@ -380,7 +384,7 @@
                     </svg>
                     <span>Encontrar auto</span>
                 </button>
-                <button class="ctrl-btn" onclick="sendCmd('START_ENGINE', '🚀 Arranque remoto iniciado')">
+                <button class="ctrl-btn" onclick="sendCmd('START_ENGINE', '🚀 Arranque remoto')">
                     <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round">
                         <path d="M13 2L3 14h7l-1 8 10-12h-7l1-8z"/>
                     </svg>
@@ -492,6 +496,27 @@
             <div class="eyebrow">Configuración</div>
             <h1 class="screen-title">Ajustes</h1>
 
+            <!-- VEHÍCULO -->
+            <div class="settings-group">
+                <h3>Vehículo</h3>
+                
+                <div class="list-row" onclick="editVehicle()" style="cursor:pointer;">
+                    <div>
+                        <div class="list-row-label">Nombre del vehículo</div>
+                        <div class="list-row-sub" id="vehicleNameSetting">Toyota Corolla 2022</div>
+                    </div>
+                    <span style="color:var(--text-dim); font-size:13px;">›</span>
+                </div>
+
+                <div class="list-row" onclick="editPlate()" style="cursor:pointer;">
+                    <div>
+                        <div class="list-row-label">Placa</div>
+                        <div class="list-row-sub" id="vehiclePlate">ABC-1234</div>
+                    </div>
+                    <span style="color:var(--text-dim); font-size:13px;">›</span>
+                </div>
+            </div>
+
             <div class="settings-group">
                 <h3>Seguridad de acceso</h3>
 
@@ -512,7 +537,7 @@
                 </div>
 
                 <p class="settings-note">
-                    La huella/rostro y el PIN se usan para abrir la app y también para vincular o desvincular un teléfono por Bluetooth — así nadie puede tocar tu alarma con solo tener el celular en la mano.
+                    La huella/rostro y el PIN se usan para abrir la app y también para vincular o desvincular un teléfono por Bluetooth.
                 </p>
             </div>
 
@@ -545,10 +570,6 @@
                         <span class="proximity-meter-val" id="proximityRssiLabel">— dBm</span>
                     </div>
                 </div>
-
-                <p class="settings-note">
-                    Solo funciona mientras la app está abierta en tu teléfono (limitación de Bluetooth en navegadores, no se puede vigilar con la pantalla apagada o la app cerrada).
-                </p>
             </div>
 
             <div class="settings-group">
@@ -634,7 +655,7 @@
                 <h3>Teléfonos vinculados</h3>
 
                 <p class="settings-note">
-                    Solo 2 teléfonos pueden vincularse al vehículo por Bluetooth. Necesitas estar conectado con uno ya autorizado para agregar o quitar teléfonos.
+                    Solo 2 teléfonos pueden vincularse al vehículo por Bluetooth.
                 </p>
 
                 <div class="list-row" onclick="pairNewPhone()" style="cursor:pointer;">
@@ -649,6 +670,26 @@
                     <div>
                         <div class="list-row-label" style="color:var(--danger);">Olvidar todos los teléfonos</div>
                         <div class="list-row-sub">Libera los 2 espacios para volver a vincular</div>
+                    </div>
+                    <span style="color:var(--text-dim); font-size:13px;">›</span>
+                </div>
+            </div>
+
+            <div class="settings-group">
+                <h3>Acerca de</h3>
+                
+                <div class="list-row">
+                    <div>
+                        <div class="list-row-label">Versión</div>
+                        <div class="list-row-sub">Centinela v5.0</div>
+                    </div>
+                    <span style="color:var(--text-dim); font-size:13px;">5.0</span>
+                </div>
+
+                <div class="list-row" onclick="showAbout()" style="cursor:pointer;">
+                    <div>
+                        <div class="list-row-label">Información</div>
+                        <div class="list-row-sub">© 2024 Centinela - Todos los derechos reservados</div>
                     </div>
                     <span style="color:var(--text-dim); font-size:13px;">›</span>
                 </div>
@@ -708,8 +749,7 @@
         </div>
         <div class="lock-title">Configuración inicial</div>
         <div class="lock-sub">
-            Para usar Centinela, primero debes configurar un método de seguridad.<br>
-            Esto protegerá tu vehículo y tus datos.
+            Para usar Centinela, primero debes configurar un método de seguridad.
         </div>
         <button class="btn-primary" onclick="registerBiometric()">Configurar huella / rostro</button>
         <button class="btn-secondary" onclick="openPinSetup()">Configurar PIN</button>
