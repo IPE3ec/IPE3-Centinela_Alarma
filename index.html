@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
-    <meta name="theme-color" content="#0A0D12">
+    <meta name="theme-color" content="#0A0D12" id="themeColorMeta">
     <meta name="description" content="Centinela v5.0 — Control remoto y seguridad de tu vehículo">
     <meta name="mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-capable" content="yes">
@@ -29,7 +29,7 @@
 </head>
 <body>
 
-<div class="app" data-armed="false" id="app">
+<div class="app" data-armed="false" data-alarm="false" id="app">
 
     <!-- ========================= BARRA DE ESTADO SUPERIOR ========================= -->
     <div class="statusbar">
@@ -42,9 +42,18 @@
             <div class="brand-name">CENTINELA</div>
             <div class="brand-version">v5.0</div>
         </div>
-        <div class="status-pill" id="statusPill" onclick="connectBLE()">
-            <span class="dot" id="statusDot"></span>
-            <span id="statusPillText">Sin conexión</span>
+
+        <div class="statusbar-right">
+            <!-- Badge de alarma: solo visible cuando alarmTriggered = true -->
+            <button class="alarm-badge" id="alarmBadge" hidden onclick="stopAlarmFromUI()">
+                <span class="alarm-badge-dot"></span>
+                <span id="alarmBadgeText">ALARMA</span>
+            </button>
+
+            <div class="status-pill" id="statusPill" onclick="connectBLE()">
+                <span class="dot" id="statusDot"></span>
+                <span id="statusPillText">Sin conexión</span>
+            </div>
         </div>
     </div>
 
@@ -244,44 +253,23 @@
                 </button>
             </div>
 
-            <!-- VIDRIOS -->
+            <!-- VIDRIOS (simplificado: solo Subir / Bajar, sin distinción delantero/trasero) -->
             <div class="section-head"><h2>Vidrios</h2></div>
-            <div class="window-row">
-                <div class="window-card">
-                    <div class="window-info">
-                        <div class="window-label">Delanteros</div>
-                        <div class="window-pct" id="windowLPct">35%</div>
-                    </div>
-                    <div class="window-btns">
-                        <button onclick="moveWindow('L',100)" title="Cerrar completamente">
-                            <svg viewBox="0 0 24 24" fill="none" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-                                <path d="M12 19V5M6 11l6-6 6 6"/>
-                            </svg>
-                        </button>
-                        <button onclick="moveWindow('L',-100)" title="Abrir completamente">
-                            <svg viewBox="0 0 24 24" fill="none" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-                                <path d="M12 5v14M6 13l6 6 6-6"/>
-                            </svg>
-                        </button>
-                    </div>
+            <div class="window-simple">
+                <div class="window-simple-top">
+                    <span class="window-simple-label">Todos los vidrios</span>
+                    <span class="window-simple-pct" id="windowPct">35%</span>
                 </div>
-                <div class="window-card">
-                    <div class="window-info">
-                        <div class="window-label">Traseros</div>
-                        <div class="window-pct" id="windowRPct">35%</div>
-                    </div>
-                    <div class="window-btns">
-                        <button onclick="moveWindow('R',100)" title="Cerrar completamente">
-                            <svg viewBox="0 0 24 24" fill="none" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-                                <path d="M12 19V5M6 11l6-6 6 6"/>
-                            </svg>
-                        </button>
-                        <button onclick="moveWindow('R',-100)" title="Abrir completamente">
-                            <svg viewBox="0 0 24 24" fill="none" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-                                <path d="M12 5v14M6 13l6 6 6-6"/>
-                            </svg>
-                        </button>
-                    </div>
+                <div class="window-simple-track">
+                    <div class="window-simple-fill" id="windowFill" style="width:35%;"></div>
+                </div>
+                <div class="window-simple-btns">
+                    <button class="window-simple-btn" id="windowUpBtn" onclick="moveWindowsSimple('up')">
+                        Subir
+                    </button>
+                    <button class="window-simple-btn" id="windowDownBtn" onclick="moveWindowsSimple('down')">
+                        Bajar
+                    </button>
                 </div>
             </div>
 
@@ -384,7 +372,7 @@
                     </svg>
                     <span>Encontrar auto</span>
                 </button>
-                <button class="ctrl-btn" onclick="sendCmd('START_ENGINE', '🚀 Arranque remoto')">
+                <button class="ctrl-btn" id="startEngineBtn" onclick="openStartChecklist()">
                     <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round">
                         <path d="M13 2L3 14h7l-1 8 10-12h-7l1-8z"/>
                     </svg>
@@ -402,7 +390,7 @@
                         <path d="M9 18l6-6-6-6"/>
                     </svg>
                 </button>
-                <button class="ctrl-btn full danger" onclick="confirmStop()">
+                <button class="ctrl-btn full danger" id="stopEngineBtn" onclick="confirmStop()">
                     <span style="display:flex; align-items:center; gap:10px;">
                         <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round">
                             <circle cx="12" cy="12" r="9"/>
@@ -794,6 +782,28 @@
             <button onclick="pinBackspace()">⌫</button>
         </div>
         <button class="btn-secondary" onclick="closePinOverlay()">Cancelar</button>
+    </div>
+</div>
+
+<!-- ========================= CHECKLIST ARRANQUE / APAGADO REMOTO ========================= -->
+<div class="overlay" id="checklistOverlay" hidden>
+    <div class="modal-card checklist-card">
+        <div class="checklist-icon" id="checklistIcon">
+            <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round">
+                <path d="M13 2L3 14h7l-1 8 10-12h-7l1-8z"/>
+            </svg>
+        </div>
+        <div class="lock-title" id="checklistTitle">Verificación antes de arrancar</div>
+        <div class="lock-sub" id="checklistSub">Estas condiciones son obligatorias antes de continuar</div>
+
+        <div class="checklist-items" id="checklistItems">
+            <!-- Generado dinámicamente por app.js -->
+        </div>
+
+        <button class="btn-primary" id="checklistConfirmBtn" onclick="confirmChecklistAction()" disabled>
+            Confirmar
+        </button>
+        <button class="btn-secondary" onclick="closeChecklistOverlay()">Cancelar</button>
     </div>
 </div>
 
