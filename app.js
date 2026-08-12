@@ -1,5 +1,5 @@
 // ========================================
-// CENTINELA - PWA v3.0
+// CENTINELA - PWA v3.0 COMPLETA
 // ========================================
 
 // ==================== CONSTANTES ====================
@@ -36,6 +36,9 @@ let pinCallback = null;
 let proximityInterval = null;
 let trunkPressTimer = null;
 let audioContext = null;
+let countdownInterval = null;
+let windowAutoTimer = null;
+let windowAutoMode = false;
 
 // ==================== INICIALIZACIÓN ====================
 document.addEventListener('DOMContentLoaded', () => {
@@ -47,6 +50,7 @@ document.addEventListener('DOMContentLoaded', () => {
 });
 
 function initApp() {
+    // Navegación por tabs
     document.querySelectorAll('.tab').forEach(tab => {
         tab.addEventListener('click', (e) => {
             e.preventDefault();
@@ -55,6 +59,7 @@ function initApp() {
         });
     });
 
+    // Navegación por enlaces
     document.querySelectorAll('[data-goto]').forEach(link => {
         link.addEventListener('click', (e) => {
             e.preventDefault();
@@ -78,7 +83,7 @@ function checkFirstRun() {
     }
 }
 
-// ==================== AUDIO ====================
+// ==================== AUDIO (SONIDOS PWA) ====================
 function initAudio() {
     try {
         audioContext = new (window.AudioContext || window.webkitAudioContext)();
@@ -241,7 +246,10 @@ async function connectBLE() {
         showToast('✅ Conectado a Centinela', 'success');
         playSound('confirm');
 
+        // Solicitar estado completo
         await sendBLECommand('GET_STATUS');
+        
+        // Solicitar lista de dispositivos vinculados
         await updateBondedDevices();
 
     } catch (error) {
@@ -311,16 +319,27 @@ function handleStatusUpdate(event) {
         const data = JSON.parse(jsonString);
         
         console.log('📥 Estado recibido:', data);
+        
+        // Actualizar estado
         Object.assign(deviceState, data);
+        
+        // Actualizar UI
         updateUI(data);
         
+        // Si hay dispositivos vinculados en la respuesta, actualizar UI
+        if (data.bondedDevices) {
+            console.log('📱 Dispositivos vinculados:', data.bondedDevices);
+            updateBondedUI(data.bondedDevices, data.bondedCount, data.maxBonded);
+        }
+        
     } catch (error) {
-        console.error('Error procesando estado:', error);
+        console.error('❌ Error procesando estado:', error);
     }
 }
 
-// ==================== ACTUALIZACIÓN UI ====================
+// ==================== ACTUALIZACIÓN DE UI ====================
 function updateUI(data) {
+    // Escudo
     const shieldBtn = document.getElementById('shieldBtn');
     const shieldLabel = document.getElementById('shieldLabel');
     const shieldSubState = document.getElementById('shieldSubState');
@@ -337,6 +356,7 @@ function updateUI(data) {
         document.querySelector('.app').setAttribute('data-armed', 'false');
     }
 
+    // Stats
     if (data.battery !== undefined) {
         document.getElementById('statBattery').textContent = `${data.battery}V`;
     }
@@ -355,11 +375,13 @@ function updateUI(data) {
         document.getElementById('statGps').textContent = `${satellites}/12`;
     }
 
+    // Seguros
     if (data.locked !== undefined) {
         document.getElementById('lockBtnClosed').classList.toggle('active', data.locked);
         document.getElementById('lockBtnOpen').classList.toggle('active', !data.locked);
     }
 
+    // Vidrios
     if (data.windowL !== undefined) {
         document.getElementById('windowLPct').textContent = `${data.windowL}%`;
     }
@@ -367,12 +389,22 @@ function updateUI(data) {
         document.getElementById('windowRPct').textContent = `${data.windowR}%`;
     }
 
+    // Alarma
     if (data.alarmTriggered) {
         showToast('🚨 ¡ALARMA DISPARADA!', 'error');
         playSound('alert');
         document.getElementById('shieldSubState').textContent = '🚨 ALARMA!';
     }
 
+    // Puerta
+    if (data.doorOpen !== undefined) {
+        const statusEl = document.querySelector('.shield-sub b:last-child');
+        if (statusEl) {
+            statusEl.textContent = data.doorOpen ? 'puerta abierta' : 'todas cerradas';
+        }
+    }
+
+    // Actividad reciente
     updateRecentActivity(data);
 }
 
@@ -421,6 +453,25 @@ function updateRecentActivity(data) {
             `;
             feed.appendChild(event);
         });
+    }
+}
+
+function updateBondedUI(devices, count, max) {
+    const statusText = document.getElementById('statusPillText');
+    if (isConnected && count > 0) {
+        statusText.textContent = `Conectado (${count}/${max})`;
+    } else if (isConnected) {
+        statusText.textContent = 'Conectado';
+    }
+    
+    // Actualizar subtítulo del key link
+    const sub = document.getElementById('keyLinkSub');
+    if (sub && isConnected) {
+        if (count > 0) {
+            sub.textContent = `${count} teléfono${count > 1 ? 's' : ''} vinculado${count > 1 ? 's' : ''}`;
+        } else {
+            sub.textContent = 'Sin teléfonos vinculados';
+        }
     }
 }
 
@@ -491,10 +542,14 @@ async function toggleLight(lightId) {
 
 function getLightName(id) {
     const names = {
-        'LOWBEAM': 'Bajas', 'HIGHBEAM': 'Altas',
-        'TURN_L': 'Direcc. izq.', 'TURN_R': 'Direcc. der.',
-        'BRAKE': 'Freno', 'REVERSE': 'Reversa',
-        'FOG': 'Antiniebla', 'PARK': 'Parqueo'
+        'LOWBEAM': 'Bajas',
+        'HIGHBEAM': 'Altas',
+        'TURN_L': 'Direcc. izq.',
+        'TURN_R': 'Direcc. der.',
+        'BRAKE': 'Freno',
+        'REVERSE': 'Reversa',
+        'FOG': 'Antiniebla',
+        'PARK': 'Parqueo'
     };
     return names[id] || id;
 }
@@ -524,7 +579,6 @@ function startTrunkPress(e) {
         progress += interval;
         const percent = Math.min(100, (progress / totalTime) * 100);
         
-        const degrees = (percent / 100) * 360;
         btn.style.background = `conic-gradient(var(--accent) ${percent}%, var(--surface) ${percent}%)`;
         
         if (percent < 30) {
@@ -620,6 +674,14 @@ function confirmStop() {
 }
 
 // ==================== VINCULACIÓN ====================
+async function updateBondedDevices() {
+    const success = await sendBLECommand('GET_BONDED');
+    if (!success) {
+        console.log('⚠️ No se pudo obtener lista de dispositivos');
+        return;
+    }
+}
+
 async function pairNewPhone() {
     if (!isConnected) {
         showToast('⚠️ Conéctate al vehículo primero', 'error');
@@ -671,6 +733,9 @@ async function forgetPhonesSecure() {
     await sendBLECommand('FORGET_PHONES');
     playSound('confirm');
     showToast('🗑️ Todos los teléfonos eliminados', 'warning');
+    
+    // Actualizar lista
+    setTimeout(() => updateBondedDevices(), 1000);
 }
 
 // ==================== AUTENTICACIÓN ====================
@@ -999,7 +1064,7 @@ function toggleSensor(sensor, el) {
     localStorage.setItem(`sensor_${sensor}`, isOn ? 'true' : 'false');
 }
 
-// ==================== USUARIOS Y EMERGENCIA ====================
+// ==================== USUARIOS Y CÓDIGO DE EMERGENCIA ====================
 function openUsers() {
     showToast('👥 Gestión de usuarios y permisos', 'info');
     setTimeout(() => {
@@ -1033,6 +1098,64 @@ async function pairCameraWifi() {
             showToast('⏹️ Búsqueda cancelada', 'info');
         }
     }, 3000);
+}
+
+// ==================== VIDRIOS AUTO ====================
+function toggleWindowAuto() {
+    windowAutoMode = !windowAutoMode;
+    const btn = document.getElementById('windowAutoBtn');
+    if (btn) {
+        btn.classList.toggle('active', windowAutoMode);
+        btn.textContent = windowAutoMode ? '🌡️ AUTO ACTIVADO' : '🌡️ AUTO';
+    }
+    
+    if (windowAutoMode) {
+        showToast('🌡️ Modo automático de vidrios activado', 'success');
+        playSound('confirm');
+        startWindowAuto();
+    } else {
+        showToast('🌡️ Modo automático desactivado', 'info');
+        stopWindowAuto();
+    }
+}
+
+function startWindowAuto() {
+    if (windowAutoTimer) clearInterval(windowAutoTimer);
+    
+    let internalTemp = 25;
+    let externalTemp = 30;
+    
+    windowAutoTimer = setInterval(() => {
+        internalTemp += (Math.random() - 0.5) * 2;
+        externalTemp += (Math.random() - 0.5) * 2;
+        
+        internalTemp = Math.max(15, Math.min(45, internalTemp));
+        externalTemp = Math.max(10, Math.min(45, externalTemp));
+        
+        if (internalTemp > externalTemp + 5) {
+            if (deviceState.windowL > 20) {
+                sendBLECommand('WIN_L_DOWN');
+                deviceState.windowL = Math.max(0, deviceState.windowL - 5);
+            }
+            if (deviceState.windowR > 20) {
+                sendBLECommand('WIN_R_DOWN');
+                deviceState.windowR = Math.max(0, deviceState.windowR - 5);
+            }
+            showToast(`🌡️ ${Math.round(internalTemp)}°C - Bajando vidrios por seguridad`, 'warning');
+        }
+        
+        const tempDisplay = document.getElementById('windowTempDisplay');
+        if (tempDisplay) {
+            tempDisplay.textContent = `🌡️ ${Math.round(internalTemp)}°C / ${Math.round(externalTemp)}°C`;
+        }
+    }, 5000);
+}
+
+function stopWindowAuto() {
+    if (windowAutoTimer) {
+        clearInterval(windowAutoTimer);
+        windowAutoTimer = null;
+    }
 }
 
 // ==================== MAPA ====================
@@ -1224,5 +1347,7 @@ window.toggleMode = toggleMode;
 window.toggleSensor = toggleSensor;
 window.openUsers = openUsers;
 window.openEmergencyCode = openEmergencyCode;
+window.updateBondedDevices = updateBondedDevices;
+window.toggleWindowAuto = toggleWindowAuto;
 
-console.log('✅ Centinela PWA v9.0 lista');
+console.log('✅ Centinela PWA v3.0 lista');
