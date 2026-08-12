@@ -106,9 +106,13 @@ function saveVehicleData() {
 }
 
 function updateVehicleUI() {
-    document.getElementById('vehicleNameDisplay').textContent = vehicleData.name;
-    document.getElementById('vehicleNameSetting').textContent = vehicleData.name;
-    document.getElementById('vehiclePlate').textContent = vehicleData.plate;
+    const nameDisplay = document.getElementById('vehicleNameDisplay');
+    const nameSetting = document.getElementById('vehicleNameSetting');
+    const plateDisplay = document.getElementById('vehiclePlate');
+    
+    if (nameDisplay) nameDisplay.textContent = vehicleData.name;
+    if (nameSetting) nameSetting.textContent = vehicleData.name;
+    if (plateDisplay) plateDisplay.textContent = vehicleData.plate;
 }
 
 // ==================== EDICIÓN DE VEHÍCULO ====================
@@ -134,20 +138,13 @@ function editPlate() {
     }
 }
 
-function showAbout() {
-    showToast(`🚗 Centinela v${VERSION}\n© 2024 - Todos los derechos reservados`, 'info');
-    playSound('confirm');
-}
-
 // ==================== ACTUALIZACIÓN DE BATERÍA ====================
 function startBatteryUpdates() {
     if (batteryUpdateInterval) clearInterval(batteryUpdateInterval);
     
-    // Mostrar carga inicial con animación
     let batteryValue = 0;
     batteryUpdateInterval = setInterval(() => {
         if (isConnected && deviceState.battery > 0) {
-            // Si hay datos reales, mostrarlos directamente
             const batt = document.getElementById('statBattery');
             if (batt) {
                 batt.textContent = `${deviceState.battery}V`;
@@ -162,7 +159,6 @@ function startBatteryUpdates() {
             return;
         }
         
-        // Animación de carga cuando no hay datos
         if (!isConnected) {
             const batt = document.getElementById('statBattery');
             if (batt) {
@@ -222,7 +218,7 @@ function setupInstallPrompt() {
 
 async function installApp() {
     if (!deferredPrompt) {
-        showToast('📱 Abre el menú del navegador y selecciona "Instalar app"', 'info');
+        showToast('📱 Abre el menú (3 puntos) y selecciona "Instalar aplicación"', 'info');
         return;
     }
     
@@ -242,7 +238,6 @@ async function installApp() {
 function initAudio() {
     try {
         audioContext = new (window.AudioContext || window.webkitAudioContext)();
-        // Reactivar audio en Android
         document.addEventListener('click', () => {
             if (audioContext && audioContext.state === 'suspended') {
                 audioContext.resume();
@@ -508,7 +503,6 @@ function updateUI(data) {
         document.querySelector('.app').setAttribute('data-armed', 'false');
     }
 
-    // Batería - actualización inmediata
     if (data.battery !== undefined && data.battery > 0) {
         const batt = document.getElementById('statBattery');
         if (batt) {
@@ -644,13 +638,11 @@ async function toggleArm() {
     if (!isArmed) {
         await sendBLECommand('ARM');
         playSound('arm');
-        showToast('✅ Vehículo armado', 'success');
+        showToast('🔒 Vehículo armado', 'success');
     } else {
-        if (confirm('¿Desarmar el vehículo?')) {
-            await sendBLECommand('DISARM');
-            playSound('disarm');
-            showToast('🔓 Vehículo desarmado', 'info');
-        }
+        await sendBLECommand('DISARM');
+        playSound('disarm');
+        showToast('🔓 Vehículo desarmado', 'info');
     }
 }
 
@@ -1218,39 +1210,10 @@ function toggleSensor(sensor, el) {
 }
 
 // ==================== USUARIOS Y CÓDIGO DE EMERGENCIA ====================
-function openUsers() {
-    showToast('👥 Gestión de usuarios y permisos', 'info');
-    setTimeout(() => {
-        showToast('👤 Conductor 1: Admin\n👤 Conductor 2: Estándar', 'info');
-    }, 500);
-}
-
 function openEmergencyCode() {
     const code = Math.floor(100000 + Math.random() * 900000);
     showToast(`🔑 Código de emergencia: ${code}`, 'warning');
     playSound('alert');
-}
-
-// ==================== CÁMARA ====================
-async function pairCameraWifi() {
-    if (!isConnected) {
-        showToast('⚠️ Conéctate al vehículo primero', 'error');
-        playSound('error');
-        return;
-    }
-    
-    showToast('📷 Buscando cámaras WiFi...', 'info');
-    playSound('confirm');
-    
-    setTimeout(() => {
-        const found = confirm('📷 Cámara encontrada: "Centinela-CAM-01"\n\n¿Deseas vincularla?');
-        if (found) {
-            showToast('✅ Cámara vinculada correctamente', 'success');
-            playSound('confirm');
-        } else {
-            showToast('⏹️ Búsqueda cancelada', 'info');
-        }
-    }, 3000);
 }
 
 // ==================== VIDRIOS AUTO ====================
@@ -1481,7 +1444,6 @@ window.connectBLE = connectBLE;
 window.sendBLECommand = sendBLECommand;
 window.showToast = showToast;
 window.navigateTo = navigateTo;
-window.pairCameraWifi = pairCameraWifi;
 window.pairNewPhone = pairNewPhone;
 window.forgetPhonesSecure = forgetPhonesSecure;
 window.findCar = findCar;
@@ -1498,13 +1460,11 @@ window.updateProximityLabel = updateProximityLabel;
 window.toggleSound = toggleSound;
 window.toggleMode = toggleMode;
 window.toggleSensor = toggleSensor;
-window.openUsers = openUsers;
-window.openEmergencyCode = openEmergencyCode;
 window.updateBondedDevices = updateBondedDevices;
 window.toggleWindowAuto = toggleWindowAuto;
 window.installApp = installApp;
 window.editVehicle = editVehicle;
 window.editPlate = editPlate;
-window.showAbout = showAbout;
+window.openEmergencyCode = openEmergencyCode;
 
 console.log(`✅ Centinela v${VERSION} lista`);
