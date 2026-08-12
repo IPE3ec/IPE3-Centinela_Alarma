@@ -1014,4 +1014,320 @@ function toggleSound(el) {
 }
 
 // ==================== MODOS Y SENSORES ====================
-function toggleMode(mode, el
+function toggleMode(mode, el) {
+    const isOn = el.classList.toggle('on');
+    const name = {
+        'valet': 'Modo valet',
+        'taller': 'Modo taller',
+        'ninos': 'Modo niños'
+    }[mode] || mode;
+    
+    showToast(`${isOn ? '✅' : '⏹️'} ${name} ${isOn ? 'activado' : 'desactivado'}`, isOn ? 'success' : 'info');
+    playSound('confirm');
+    localStorage.setItem(`mode_${mode}`, isOn ? 'true' : 'false');
+}
+
+function toggleSensor(sensor, el) {
+    const isOn = el.classList.toggle('on');
+    const name = {
+        'impacto': 'Sensibilidad de impacto',
+        'inclinacion': 'Detección de inclinación'
+    }[sensor] || sensor;
+    
+    showToast(`${isOn ? '✅' : '⏹️'} ${name} ${isOn ? 'activado' : 'desactivado'}`, isOn ? 'success' : 'info');
+    playSound('confirm');
+    localStorage.setItem(`sensor_${sensor}`, isOn ? 'true' : 'false');
+}
+
+// ==================== USUARIOS Y CÓDIGO DE EMERGENCIA ====================
+function openUsers() {
+    showToast('👥 Gestión de usuarios y permisos', 'info');
+    // Simulación
+    setTimeout(() => {
+        showToast('👤 Conductor 1: Admin\n👤 Conductor 2: Estándar', 'info');
+    }, 500);
+}
+
+function openEmergencyCode() {
+    const code = Math.floor(100000 + Math.random() * 900000);
+    showToast(`🔑 Código de emergencia: ${code}`, 'warning');
+    playSound('alert');
+}
+
+// ==================== CÁMARA ====================
+async function pairCameraWifi() {
+    if (!isConnected) {
+        showToast('⚠️ Conéctate al vehículo primero', 'error');
+        playSound('error');
+        return;
+    }
+    
+    showToast('📷 Buscando cámaras WiFi...', 'info');
+    playSound('confirm');
+    
+    setTimeout(() => {
+        const found = confirm('📷 Cámara encontrada: "Centinela-CAM-01"\n\n¿Deseas vincularla?');
+        if (found) {
+            showToast('✅ Cámara vinculada correctamente', 'success');
+            playSound('confirm');
+        } else {
+            showToast('⏹️ Búsqueda cancelada', 'info');
+        }
+    }, 3000);
+}
+
+// ==================== VIDRIOS AUTO ====================
+let windowAutoMode = false;
+let windowAutoTimer = null;
+
+function toggleWindowAuto() {
+    windowAutoMode = !windowAutoMode;
+    const btn = document.getElementById('windowAutoBtn');
+    if (btn) {
+        btn.classList.toggle('active', windowAutoMode);
+        btn.textContent = windowAutoMode ? '🌡️ AUTO ACTIVADO' : '🌡️ AUTO';
+    }
+    
+    if (windowAutoMode) {
+        showToast('🌡️ Modo automático de vidrios activado', 'success');
+        playSound('confirm');
+        startWindowAuto();
+    } else {
+        showToast('🌡️ Modo automático desactivado', 'info');
+        stopWindowAuto();
+    }
+}
+
+function startWindowAuto() {
+    if (windowAutoTimer) clearInterval(windowAutoTimer);
+    
+    let internalTemp = 25;
+    let externalTemp = 30;
+    
+    windowAutoTimer = setInterval(() => {
+        internalTemp += (Math.random() - 0.5) * 2;
+        externalTemp += (Math.random() - 0.5) * 2;
+        
+        internalTemp = Math.max(15, Math.min(45, internalTemp));
+        externalTemp = Math.max(10, Math.min(45, externalTemp));
+        
+        if (internalTemp > externalTemp + 5) {
+            if (deviceState.windowL > 20) {
+                sendBLECommand('WIN_L_DOWN');
+                deviceState.windowL = Math.max(0, deviceState.windowL - 5);
+            }
+            if (deviceState.windowR > 20) {
+                sendBLECommand('WIN_R_DOWN');
+                deviceState.windowR = Math.max(0, deviceState.windowR - 5);
+            }
+            showToast(`🌡️ ${Math.round(internalTemp)}°C - Bajando vidrios por seguridad`, 'warning');
+        }
+        
+        const tempDisplay = document.getElementById('windowTempDisplay');
+        if (tempDisplay) {
+            tempDisplay.textContent = `🌡️ ${Math.round(internalTemp)}°C / ${Math.round(externalTemp)}°C`;
+        }
+    }, 5000);
+}
+
+function stopWindowAuto() {
+    if (windowAutoTimer) {
+        clearInterval(windowAutoTimer);
+        windowAutoTimer = null;
+    }
+}
+
+// ==================== MAPA ====================
+let mapInstance = null;
+let mapMarker = null;
+
+function setupMap() {
+    const mapContainer = document.getElementById('map');
+    if (!mapContainer) return;
+    
+    if (mapInstance) {
+        mapInstance.invalidateSize();
+        return;
+    }
+    
+    const lat = -0.1807;
+    const lng = -78.4678;
+    
+    try {
+        mapInstance = L.map('map', {
+            center: [lat, lng],
+            zoom: 15,
+            zoomControl: false
+        });
+        
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+            attribution: '© OpenStreetMap',
+            maxZoom: 19
+        }).addTo(mapInstance);
+        
+        const icon = L.divIcon({
+            className: 'vehicle-marker',
+            html: '🚗',
+            iconSize: [32, 32],
+            iconAnchor: [16, 32]
+        });
+        
+        mapMarker = L.marker([lat, lng], { icon: icon })
+            .addTo(mapInstance)
+            .bindPopup('📍 Tu vehículo');
+        
+        setTimeout(() => {
+            mapInstance.invalidateSize();
+        }, 500);
+        
+        L.control.zoom({
+            position: 'bottomright'
+        }).addTo(mapInstance);
+        
+    } catch (error) {
+        console.error('Error inicializando mapa:', error);
+        mapContainer.innerHTML = `
+            <div style="display:flex;flex-direction:column;align-items:center;justify-content:center;height:100%;color:var(--text-dim);gap:8px;">
+                <span style="font-size:48px;">🗺️</span>
+                <span>Mapa no disponible</span>
+            </div>
+        `;
+    }
+}
+
+function updateVehiclePosition(lat, lng) {
+    if (mapInstance && mapMarker) {
+        mapMarker.setLatLng([lat, lng]);
+        mapInstance.setView([lat, lng], 15);
+        mapMarker.openPopup();
+    }
+}
+
+// ==================== TOAST ====================
+function showToast(message, type = 'info') {
+    const toast = document.getElementById('toast');
+    if (!toast) return;
+    
+    toast.textContent = message;
+    toast.className = 'toast';
+    
+    if (type === 'error') {
+        toast.classList.add('error');
+    } else if (type === 'success') {
+        toast.classList.add('success');
+    } else if (type === 'warning') {
+        toast.classList.add('warning');
+    }
+    
+    toast.classList.add('show');
+    clearTimeout(toast._timeout);
+    toast._timeout = setTimeout(() => {
+        toast.classList.remove('show');
+    }, 4000);
+}
+
+// ==================== SETTINGS ====================
+function loadSettings() {
+    const bioEnabled = localStorage.getItem('biometricEnabled') === 'true';
+    const bioSwitch = document.getElementById('switchBiometric');
+    if (bioSwitch) {
+        if (bioEnabled) bioSwitch.classList.add('on');
+        const status = document.getElementById('bioStatusSub');
+        if (status) {
+            status.textContent = bioEnabled ? '✅ Huella/rostro activado' : 'Usa el lector de tu teléfono';
+        }
+    }
+    
+    const proxEnabled = localStorage.getItem('proximityEnabled') === 'true';
+    const proxSwitch = document.getElementById('switchProximity');
+    if (proxSwitch) {
+        if (proxEnabled) proxSwitch.classList.add('on');
+        const card = document.getElementById('proximityLiveCard');
+        if (card) {
+            card.style.display = proxEnabled ? 'block' : 'none';
+        }
+    }
+    
+    const soundEnabled = localStorage.getItem('soundEnabled') !== 'false';
+    const soundSwitch = document.getElementById('switchSound');
+    if (soundSwitch) {
+        if (soundEnabled) soundSwitch.classList.add('on');
+    }
+    
+    const pinHash = localStorage.getItem(PIN_STORAGE_KEY);
+    const pinStatus = document.getElementById('pinStatusSub');
+    if (pinStatus) {
+        pinStatus.textContent = pinHash ? '✅ PIN configurado' : 'No configurado';
+    }
+
+    // Cargar modos
+    ['valet', 'taller', 'ninos'].forEach(mode => {
+        const enabled = localStorage.getItem(`mode_${mode}`) === 'true';
+        const sw = document.getElementById(`switch${mode.charAt(0).toUpperCase() + mode.slice(1)}`);
+        if (sw && enabled) sw.classList.add('on');
+    });
+
+    // Cargar sensores
+    ['impacto', 'inclinacion'].forEach(sensor => {
+        const enabled = localStorage.getItem(`sensor_${sensor}`) === 'true';
+        const sw = document.getElementById(`switch${sensor.charAt(0).toUpperCase() + sensor.slice(1)}`);
+        if (sw && enabled) sw.classList.add('on');
+    });
+}
+
+// ==================== EVENT LISTENERS ====================
+function setupEventListeners() {
+    document.getElementById('shieldBtn')?.addEventListener('click', toggleArm);
+    
+    document.getElementById('keyLinkCard')?.addEventListener('click', () => {
+        if (isConnected) {
+            showToast(`✅ Conectado a ${bleDevice?.name || 'Centinela'}`, 'success');
+        } else {
+            connectBLE();
+        }
+    });
+    
+    const trunkBtn = document.getElementById('trunkBtn');
+    if (trunkBtn) {
+        trunkBtn.addEventListener('mousedown', startTrunkPress);
+        trunkBtn.addEventListener('mouseup', cancelTrunkPress);
+        trunkBtn.addEventListener('mouseleave', cancelTrunkPress);
+        trunkBtn.addEventListener('touchstart', startTrunkPress);
+        trunkBtn.addEventListener('touchend', cancelTrunkPress);
+        trunkBtn.addEventListener('touchcancel', cancelTrunkPress);
+    }
+}
+
+// ==================== EXPORT ====================
+window.toggleArm = toggleArm;
+window.setLock = setLock;
+window.moveWindow = moveWindow;
+window.toggleLight = toggleLight;
+window.sendCmd = sendCmd;
+window.confirmStop = confirmStop;
+window.connectBLE = connectBLE;
+window.sendBLECommand = sendBLECommand;
+window.showToast = showToast;
+window.navigateTo = navigateTo;
+window.pairCameraWifi = pairCameraWifi;
+window.pairNewPhone = pairNewPhone;
+window.forgetPhonesSecure = forgetPhonesSecure;
+window.toggleWindowAuto = toggleWindowAuto;
+window.findCar = findCar;
+window.toggleBiometric = toggleBiometric;
+window.registerBiometric = registerBiometric;
+window.tryBiometricUnlock = tryBiometricUnlock;
+window.openPinSetup = openPinSetup;
+window.openPinEntry = openPinEntry;
+window.closePinOverlay = closePinOverlay;
+window.pinPress = pinPress;
+window.pinBackspace = pinBackspace;
+window.toggleProximity = toggleProximity;
+window.updateProximityLabel = updateProximityLabel;
+window.toggleSound = toggleSound;
+window.toggleMode = toggleMode;
+window.toggleSensor = toggleSensor;
+window.openUsers = openUsers;
+window.openEmergencyCode = openEmergencyCode;
+
+console.log('✅ Centinela PWA v9.0 lista');
