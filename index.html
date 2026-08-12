@@ -435,7 +435,7 @@
                 <p>Vista previa no disponible sin conexión al vehículo</p>
             </div>
 
-            <div class="list-row" onclick="pairCameraWifi()" style="cursor:pointer;">
+            <div class="list-row" onclick="showToast('📷 Función de cámara WiFi en desarrollo', 'info')" style="cursor:pointer;">
                 <div>
                     <div class="list-row-label">Vincular cámara por WiFi</div>
                     <div class="list-row-sub">Conecta una cámara adicional a tu red</div>
@@ -503,7 +503,7 @@
                 <div class="list-row" onclick="editVehicle()" style="cursor:pointer;">
                     <div>
                         <div class="list-row-label">Nombre del vehículo</div>
-                        <div class="list-row-sub" id="vehicleNameSetting">Toyota Corolla 2022</div>
+                        <div class="list-row-sub" id="vehicleNameSetting">Mi vehículo</div>
                     </div>
                     <span style="color:var(--text-dim); font-size:13px;">›</span>
                 </div>
@@ -535,10 +535,6 @@
                     </div>
                     <span style="color:var(--text-dim); font-size:13px;">›</span>
                 </div>
-
-                <p class="settings-note">
-                    La huella/rostro y el PIN se usan para abrir la app y también para vincular o desvincular un teléfono por Bluetooth.
-                </p>
             </div>
 
             <div class="settings-group">
@@ -634,7 +630,7 @@
             <div class="settings-group">
                 <h3>Cuenta</h3>
 
-                <div class="list-row" onclick="openUsers()" style="cursor:pointer;">
+                <div class="list-row" onclick="showToast('👥 Gestión de usuarios y permisos', 'info')" style="cursor:pointer;">
                     <div>
                         <div class="list-row-label">Usuarios y permisos</div>
                         <div class="list-row-sub">2 conductores con perfil propio</div>
@@ -686,10 +682,10 @@
                     <span style="color:var(--text-dim); font-size:13px;">5.0</span>
                 </div>
 
-                <div class="list-row" onclick="showAbout()" style="cursor:pointer;">
+                <div class="list-row" onclick="showToast('🚗 Centinela v5.0\n© 2024 - Todos los derechos reservados', 'info')" style="cursor:pointer;">
                     <div>
                         <div class="list-row-label">Información</div>
-                        <div class="list-row-sub">© 2024 Centinela - Todos los derechos reservados</div>
+                        <div class="list-row-sub">© 2024 Centinela</div>
                     </div>
                     <span style="color:var(--text-dim); font-size:13px;">›</span>
                 </div>
