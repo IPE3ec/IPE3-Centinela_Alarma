@@ -1,14 +1,16 @@
 // ========================================
-// CENTINELA - PWA v3.0 COMPLETA
+// CENTINELA - PWA v5.0 COMPLETA
 // ========================================
 
 // ==================== CONSTANTES ====================
+const VERSION = '5.0';
 const BLE_SERVICE_UUID = '12345678-1234-5678-1234-56789abcdef0';
 const BLE_CMD_UUID = '12345678-1234-5678-1234-56789abcdef1';
 const BLE_STATUS_UUID = '12345678-1234-5678-1234-56789abcdef2';
 const PIN_STORAGE_KEY = 'centinela_pin_hash';
 const PIN_ATTEMPTS_KEY = 'centinela_pin_attempts';
 const MAX_PIN_ATTEMPTS = 3;
+const VEHICLE_STORAGE_KEY = 'centinela_vehicle_data';
 
 // ==================== ESTADO GLOBAL ====================
 let bleDevice = null;
@@ -27,7 +29,9 @@ let deviceState = {
     alarmTriggered: false,
     bondedDevices: [],
     bondedCount: 0,
-    maxBonded: 2
+    maxBonded: 2,
+    doorOpen: false,
+    parked: true
 };
 let pinBuffer = '';
 let pinMode = 'unlock';
@@ -36,20 +40,30 @@ let pinCallback = null;
 let proximityInterval = null;
 let trunkPressTimer = null;
 let audioContext = null;
-let countdownInterval = null;
 let windowAutoTimer = null;
 let windowAutoMode = false;
 let deferredPrompt = null;
+let batteryUpdateInterval = null;
+let statusUpdateInterval = null;
+
+// ==================== DATOS DEL VEHÍCULO ====================
+let vehicleData = {
+    name: 'Mi vehículo',
+    plate: 'ABC-1234',
+    model: 'Toyota Corolla 2022'
+};
 
 // ==================== INICIALIZACIÓN ====================
 document.addEventListener('DOMContentLoaded', () => {
-    console.log('🚗 Centinela PWA v3.0');
+    console.log(`🚗 Centinela v${VERSION}`);
+    loadVehicleData();
     initApp();
     checkBLEAvailability();
     loadSettings();
     checkFirstRun();
     registerServiceWorker();
     setupInstallPrompt();
+    updateVehicleUI();
 });
 
 function initApp() {
@@ -73,8 +87,95 @@ function initApp() {
     setupEventListeners();
     setupMap();
     initAudio();
+    startBatteryUpdates();
 }
 
+function loadVehicleData() {
+    const saved = localStorage.getItem(VEHICLE_STORAGE_KEY);
+    if (saved) {
+        try {
+            vehicleData = JSON.parse(saved);
+        } catch (e) {
+            console.log('Error cargando datos del vehículo');
+        }
+    }
+}
+
+function saveVehicleData() {
+    localStorage.setItem(VEHICLE_STORAGE_KEY, JSON.stringify(vehicleData));
+}
+
+function updateVehicleUI() {
+    document.getElementById('vehicleNameDisplay').textContent = vehicleData.name;
+    document.getElementById('vehicleNameSetting').textContent = vehicleData.name;
+    document.getElementById('vehiclePlate').textContent = vehicleData.plate;
+}
+
+// ==================== EDICIÓN DE VEHÍCULO ====================
+function editVehicle() {
+    const newName = prompt('Nombre del vehículo:', vehicleData.name);
+    if (newName && newName.trim()) {
+        vehicleData.name = newName.trim();
+        saveVehicleData();
+        updateVehicleUI();
+        showToast('✅ Nombre actualizado', 'success');
+        playSound('confirm');
+    }
+}
+
+function editPlate() {
+    const newPlate = prompt('Placa del vehículo:', vehicleData.plate);
+    if (newPlate && newPlate.trim()) {
+        vehicleData.plate = newPlate.trim().toUpperCase();
+        saveVehicleData();
+        updateVehicleUI();
+        showToast('✅ Placa actualizada', 'success');
+        playSound('confirm');
+    }
+}
+
+function showAbout() {
+    showToast(`🚗 Centinela v${VERSION}\n© 2024 - Todos los derechos reservados`, 'info');
+    playSound('confirm');
+}
+
+// ==================== ACTUALIZACIÓN DE BATERÍA ====================
+function startBatteryUpdates() {
+    if (batteryUpdateInterval) clearInterval(batteryUpdateInterval);
+    
+    // Mostrar carga inicial con animación
+    let batteryValue = 0;
+    batteryUpdateInterval = setInterval(() => {
+        if (isConnected && deviceState.battery > 0) {
+            // Si hay datos reales, mostrarlos directamente
+            const batt = document.getElementById('statBattery');
+            if (batt) {
+                batt.textContent = `${deviceState.battery}V`;
+                if (deviceState.battery < 11.0) {
+                    batt.className = 'stat-value danger';
+                } else if (deviceState.battery < 11.8) {
+                    batt.className = 'stat-value warn';
+                } else {
+                    batt.className = 'stat-value ok';
+                }
+            }
+            return;
+        }
+        
+        // Animación de carga cuando no hay datos
+        if (!isConnected) {
+            const batt = document.getElementById('statBattery');
+            if (batt) {
+                batteryValue = (batteryValue + 0.1) % 0.8 + 0.2;
+                const displayVoltage = (batteryValue * 3 + 11).toFixed(1);
+                batt.textContent = `${displayVoltage}V`;
+                batt.className = 'stat-value warn';
+            }
+        }
+    }, 2000);
+}
+
+// ==================== CHECK FIRST RUN ====================
 function checkFirstRun() {
     const pinHash = localStorage.getItem(PIN_STORAGE_KEY);
     if (!pinHash) {
@@ -84,23 +185,12 @@ function checkFirstRun() {
     }
 }
 
-// ==================== SERVICE WORKER (PWA) ====================
+// ==================== SERVICE WORKER ====================
 function registerServiceWorker() {
     if ('serviceWorker' in navigator) {
         navigator.serviceWorker.register('./sw.js')
             .then(registration => {
-                console.log('✅ Service Worker registrado:', registration);
-                registration.addEventListener('updatefound', () => {
-                    const newWorker = registration.installing;
-                    newWorker.addEventListener('statechange', () => {
-                        if (newWorker.state === 'installed' && navigator.serviceWorker.controller) {
-                            showToast('🔄 Nueva versión disponible', 'warning');
-                            if (confirm('¿Actualizar Centinela ahora?')) {
-                                window.location.reload();
-                            }
-                        }
-                    });
-                });
+                console.log('✅ Service Worker registrado');
             })
             .catch(error => {
                 console.log('❌ Error al registrar Service Worker:', error);
@@ -109,27 +199,19 @@ function registerServiceWorker() {
 }
 
 function isAppInstalled() {
-    if (window.matchMedia('(display-mode: standalone)').matches) {
-        return true;
-    }
-    if (navigator.standalone) {
-        return true;
-    }
+    if (window.matchMedia('(display-mode: standalone)').matches) return true;
+    if (navigator.standalone) return true;
     return false;
-}
-
-function showInstallPrompt() {
-    const installBtn = document.getElementById('installBtn');
-    if (installBtn && !isAppInstalled()) {
-        installBtn.style.display = 'flex';
-    }
 }
 
 function setupInstallPrompt() {
     window.addEventListener('beforeinstallprompt', (e) => {
         e.preventDefault();
         deferredPrompt = e;
-        showInstallPrompt();
+        const installBtn = document.getElementById('installBtn');
+        if (installBtn && !isAppInstalled()) {
+            installBtn.style.display = 'flex';
+        }
     });
 
     window.addEventListener('appinstalled', () => {
@@ -156,10 +238,16 @@ async function installApp() {
     }
 }
 
-// ==================== AUDIO (SONIDOS PWA) ====================
+// ==================== AUDIO ====================
 function initAudio() {
     try {
         audioContext = new (window.AudioContext || window.webkitAudioContext)();
+        // Reactivar audio en Android
+        document.addEventListener('click', () => {
+            if (audioContext && audioContext.state === 'suspended') {
+                audioContext.resume();
+            }
+        }, { once: true });
     } catch (e) {
         console.log('Audio no disponible');
     }
@@ -420,8 +508,19 @@ function updateUI(data) {
         document.querySelector('.app').setAttribute('data-armed', 'false');
     }
 
-    if (data.battery !== undefined) {
-        document.getElementById('statBattery').textContent = `${data.battery}V`;
+    // Batería - actualización inmediata
+    if (data.battery !== undefined && data.battery > 0) {
+        const batt = document.getElementById('statBattery');
+        if (batt) {
+            batt.textContent = `${data.battery}V`;
+            if (data.battery < 11.0) {
+                batt.className = 'stat-value danger';
+            } else if (data.battery < 11.8) {
+                batt.className = 'stat-value warn';
+            } else {
+                batt.className = 'stat-value ok';
+            }
+        }
     }
     
     if (data.engine !== undefined) {
@@ -457,7 +556,7 @@ function updateUI(data) {
     }
 
     if (data.doorOpen !== undefined) {
-        const statusEl = document.querySelector('.shield-sub b:last-child');
+        const statusEl = document.getElementById('doorStatus');
         if (statusEl) {
             statusEl.textContent = data.doorOpen ? 'puerta abierta' : 'todas cerradas';
         }
@@ -543,7 +642,6 @@ async function toggleArm() {
     const isArmed = document.querySelector('.app').getAttribute('data-armed') === 'true';
     
     if (!isArmed) {
-        showToast('🔒 Armando vehículo...', 'info');
         await sendBLECommand('ARM');
         playSound('arm');
         showToast('✅ Vehículo armado', 'success');
@@ -1405,5 +1503,8 @@ window.openEmergencyCode = openEmergencyCode;
 window.updateBondedDevices = updateBondedDevices;
 window.toggleWindowAuto = toggleWindowAuto;
 window.installApp = installApp;
+window.editVehicle = editVehicle;
+window.editPlate = editPlate;
+window.showAbout = showAbout;
 
-console.log('✅ Centinela PWA v3.0 lista');
+console.log(`✅ Centinela v${VERSION} lista`);
