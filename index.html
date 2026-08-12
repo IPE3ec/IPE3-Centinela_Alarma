@@ -9,7 +9,7 @@
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <meta name="apple-mobile-web-app-title" content="Centinela">
-    
+
     <title>Centinela</title>
 
     <!-- PWA -->
@@ -29,11 +29,9 @@
 </head>
 <body>
 
-<div class="app" data-armed="true" id="app">
+<div class="app" data-armed="false" id="app">
 
-    <!-- =========================
-         BARRA DE ESTADO SUPERIOR
-         ========================= -->
+    <!-- ========================= BARRA DE ESTADO SUPERIOR ========================= -->
     <div class="statusbar">
         <div class="brand">
             <div class="brand-mark">
@@ -43,15 +41,13 @@
             </div>
             <div class="brand-name">CENTINELA</div>
         </div>
-        <div class="status-pill" id="statusPill" onclick="pairPhoneSecure()">
+        <div class="status-pill disconnected" id="statusPill" onclick="connectBLE()">
             <span class="dot" id="statusDot"></span>
             <span id="statusPillText">Sin conexión</span>
         </div>
     </div>
 
-    <!-- =========================
-         CONTENEDOR DE PANTALLAS
-         ========================= -->
+    <!-- ========================= CONTENEDOR DE PANTALLAS ========================= -->
     <div class="screens">
 
         <!-- ===================== INICIO ===================== -->
@@ -63,15 +59,15 @@
                 <div class="ring r1 sweep"></div>
                 <div class="ring r2"></div>
                 <div class="ring r3"></div>
-                <button class="shield-btn" id="shieldBtn" aria-pressed="true" onclick="toggleArm()">
+                <button class="shield-btn" id="shieldBtn" aria-pressed="false" onclick="toggleArm()">
                     <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                         <path d="M12 2l8 3v6c0 5-3.4 8.4-8 11-4.6-2.6-8-6-8-11V5l8-3z"/>
                     </svg>
-                    <span class="shield-label" id="shieldLabel">ARMADO</span>
+                    <span class="shield-label" id="shieldLabel">DESARMADO</span>
                 </button>
             </div>
             <p class="shield-sub">
-                Sistema <b id="shieldSubState">activo</b> · última actividad <b id="lastActivity">hace 2 min</b>
+                Sistema <b id="shieldSubState">inactivo</b> · puertas <b>cerradas</b>
             </p>
 
             <div class="grid">
@@ -137,7 +133,7 @@
             <div class="map-card">
                 <div id="map" class="map-geo"></div>
                 <div class="map-badge">
-                    Av. Amazonas y Naciones Unidas · <b>0 km/h</b> · estacionado
+                    Av. Amazonas y Naciones Unidas · <b id="mapSpeed">0 km/h</b> · <span id="mapStatus">estacionado</span>
                 </div>
             </div>
 
@@ -202,14 +198,14 @@
             <h1 class="screen-title">Acciones rápidas</h1>
 
             <!-- BLUETOOTH -->
-            <div class="key-link" id="keyLinkCard" onclick="pairPhoneSecure()">
+            <div class="key-link" id="keyLinkCard" onclick="connectBLE()">
                 <div class="key-link-icon">
                     <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                         <rect x="7" y="2" width="10" height="20" rx="2"/>
                         <path d="M11 18h2"/>
                     </svg>
                 </div>
-                <div class="beam" id="beam" style="opacity:.35">
+                <div class="beam" id="beam" style="opacity:0.35">
                     <span class="beam-dot"></span>
                     <span class="beam-dot"></span>
                     <span class="beam-dot"></span>
@@ -250,14 +246,15 @@
                 <div class="window-card">
                     <div class="window-info">
                         <div class="window-label">Delanteros</div>
+                        <div class="window-pct" id="windowLPct">35%</div>
                     </div>
                     <div class="window-btns">
-                        <button onclick="moveWindow('L',15)" aria-label="Subir vidrios delanteros">
+                        <button onclick="moveWindow('L',100)" aria-label="Cerrar vidrios delanteros" title="Cerrar completamente">
                             <svg viewBox="0 0 24 24" fill="none" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
                                 <path d="M12 19V5M6 11l6-6 6 6"/>
                             </svg>
                         </button>
-                        <button onclick="moveWindow('L',-15)" aria-label="Bajar vidrios delanteros">
+                        <button onclick="moveWindow('L',-100)" aria-label="Abrir vidrios delanteros" title="Abrir completamente">
                             <svg viewBox="0 0 24 24" fill="none" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
                                 <path d="M12 5v14M6 13l6 6 6-6"/>
                             </svg>
@@ -267,14 +264,15 @@
                 <div class="window-card">
                     <div class="window-info">
                         <div class="window-label">Traseros</div>
+                        <div class="window-pct" id="windowRPct">35%</div>
                     </div>
                     <div class="window-btns">
-                        <button onclick="moveWindow('R',15)" aria-label="Subir vidrios traseros">
+                        <button onclick="moveWindow('R',100)" aria-label="Cerrar vidrios traseros" title="Cerrar completamente">
                             <svg viewBox="0 0 24 24" fill="none" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
                                 <path d="M12 19V5M6 11l6-6 6 6"/>
                             </svg>
                         </button>
-                        <button onclick="moveWindow('R',-15)" aria-label="Bajar vidrios traseros">
+                        <button onclick="moveWindow('R',-100)" aria-label="Abrir vidrios traseros" title="Abrir completamente">
                             <svg viewBox="0 0 24 24" fill="none" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
                                 <path d="M12 5v14M6 13l6 6 6-6"/>
                             </svg>
@@ -282,6 +280,10 @@
                     </div>
                 </div>
             </div>
+
+            <!-- Modo automático vidrios -->
+            <button class="window-auto-btn" id="windowAutoBtn" onclick="toggleWindowAuto()">🌡️ AUTO</button>
+            <div class="window-temp-display" id="windowTempDisplay">🌡️ 25°C / 30°C</div>
 
             <!-- LUCES -->
             <div class="section-head"><h2>Luces</h2></div>
@@ -375,7 +377,7 @@
                     </svg>
                     <span id="trunkBtnLabel">Mantén presionado 3s</span>
                 </button>
-                <button class="ctrl-btn" onclick="sendCmd('HORN', '🔊 Buscando vehículo')">
+                <button class="ctrl-btn" onclick="findCar()">
                     <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round">
                         <path d="M12 2C8 2 5 5 5 9c0 5 7 13 7 13s7-8 7-13c0-4-3-7-7-7z"/>
                         <circle cx="12" cy="9" r="2.3"/>
@@ -572,7 +574,7 @@
                         <div class="list-row-label">Modo valet</div>
                         <div class="list-row-sub">Limita velocidad y bloquea el maletero</div>
                     </div>
-                    <div class="switch"></div>
+                    <div class="switch" id="switchValet" onclick="toggleMode('valet', this)"></div>
                 </div>
 
                 <div class="list-row">
@@ -580,7 +582,7 @@
                         <div class="list-row-label">Modo taller</div>
                         <div class="list-row-sub">Desactiva sensores durante mantenimiento</div>
                     </div>
-                    <div class="switch"></div>
+                    <div class="switch" id="switchTaller" onclick="toggleMode('taller', this)"></div>
                 </div>
 
                 <div class="list-row">
@@ -588,7 +590,7 @@
                         <div class="list-row-label">Modo niños</div>
                         <div class="list-row-sub">Alerta si queda alguien dentro del vehículo</div>
                     </div>
-                    <div class="switch on"></div>
+                    <div class="switch on" id="switchNinos" onclick="toggleMode('ninos', this)"></div>
                 </div>
             </div>
 
@@ -600,7 +602,7 @@
                         <div class="list-row-label">Sensibilidad de impacto</div>
                         <div class="list-row-sub">Ajuste automático por IA activado</div>
                     </div>
-                    <div class="switch on"></div>
+                    <div class="switch on" id="switchImpacto" onclick="toggleSensor('impacto', this)"></div>
                 </div>
 
                 <div class="list-row">
@@ -608,14 +610,14 @@
                         <div class="list-row-label">Detección de inclinación</div>
                         <div class="list-row-sub">Alerta si se usa gato hidráulico</div>
                     </div>
-                    <div class="switch on"></div>
+                    <div class="switch on" id="switchInclinacion" onclick="toggleSensor('inclinacion', this)"></div>
                 </div>
             </div>
 
             <div class="settings-group">
                 <h3>Cuenta</h3>
 
-                <div class="list-row">
+                <div class="list-row" onclick="openUsers()" style="cursor:pointer;">
                     <div>
                         <div class="list-row-label">Usuarios y permisos</div>
                         <div class="list-row-sub">2 conductores con perfil propio</div>
@@ -623,7 +625,7 @@
                     <span style="color:var(--text-dim); font-size:13px;">›</span>
                 </div>
 
-                <div class="list-row">
+                <div class="list-row" onclick="openEmergencyCode()" style="cursor:pointer;">
                     <div>
                         <div class="list-row-label">Código de emergencia</div>
                         <div class="list-row-sub">Desactiva la alarma sin conexión</div>
@@ -760,6 +762,16 @@
             <button onclick="pinBackspace()">⌫</button>
         </div>
         <button class="btn-secondary" onclick="closePinOverlay()">Cancelar</button>
+    </div>
+</div>
+
+<!-- ========================= OVERLAY DE CUENTA REGRESIVA ========================= -->
+<div class="overlay" id="countdownOverlay" hidden>
+    <div class="modal-card" style="text-align:center; max-width:320px; padding:32px 24px;">
+        <div class="lock-title" id="countdownTitle">Preparando sistema...</div>
+        <div id="countdownSteps" style="margin: 16px 0; text-align:left; font-size:14px; color:var(--text-secondary);"></div>
+        <div id="countdownNumber">3</div>
+        <div style="font-size:12px; color:var(--text-dim); margin-top:8px;">Preparando sistema...</div>
     </div>
 </div>
 
