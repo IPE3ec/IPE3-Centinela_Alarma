@@ -1,95 +1,137 @@
-const CACHE_NAME = 'centinela-v3';
+// ========================================
+// CENTINELA - SERVICE WORKER v1.0
+// ========================================
 
-const APP_SHELL = [
-  './',
-  './index.html',
-  './styles.css',
-  './app.js',
-  './manifest.json',
-  './icon-192.png',
-  './icon-512.png'
+const CACHE_NAME = 'centinela-v1';
+const ASSETS = [
+    '/',
+    '/index.html',
+    '/app.js',
+    '/styles.css',
+    '/manifest.json',
+    '/icons/icon-72.png',
+    '/icons/icon-96.png',
+    '/icons/icon-128.png',
+    '/icons/icon-144.png',
+    '/icons/icon-152.png',
+    '/icons/icon-192.png',
+    '/icons/icon-384.png',
+    '/icons/icon-512.png'
 ];
 
-// ================================
-// INSTALL
-// ================================
+// Instalación
 self.addEventListener('install', (event) => {
-  event.waitUntil(
-    caches.open(CACHE_NAME)
-      .then((cache) => cache.addAll(APP_SHELL))
-      .then(() => self.skipWaiting())
-  );
-});
-
-// ================================
-// ACTIVATE
-// ================================
-self.addEventListener('activate', (event) => {
-  event.waitUntil(
-    caches.keys()
-      .then((keys) => {
-        return Promise.all(
-          keys
-            .filter((key) => key !== CACHE_NAME)
-            .map((key) => caches.delete(key))
-        );
-      })
-      .then(() => self.clients.claim())
-  );
-});
-
-// ================================
-// FETCH
-// ================================
-self.addEventListener('fetch', (event) => {
-  const request = event.request;
-
-  if (request.method !== 'GET') return;
-
-  // HTML / navegación:
-  // Internet primero, caché como respaldo
-  if (request.mode === 'navigate') {
-    event.respondWith(
-      fetch(request, { cache: 'no-store' })
-        .then((response) => {
-
-          if (response.ok) {
-            const copy = response.clone();
-
-            caches.open(CACHE_NAME)
-              .then((cache) => cache.put(request, copy));
-          }
-
-          return response;
-        })
-        .catch(() => {
-          return caches.match(request)
-            .then((cached) => {
-              return cached || caches.match('./index.html');
-            });
-        })
+    event.waitUntil(
+        caches.open(CACHE_NAME)
+            .then((cache) => {
+                console.log('📦 Cache creado');
+                return cache.addAll(ASSETS);
+            })
+            .then(() => {
+                console.log('✅ Archivos cacheados');
+                return self.skipWaiting();
+            })
     );
+});
 
-    return;
-  }
+// Activación
+self.addEventListener('activate', (event) => {
+    event.waitUntil(
+        caches.keys()
+            .then((cacheNames) => {
+                return Promise.all(
+                    cacheNames.map((cacheName) => {
+                        if (cacheName !== CACHE_NAME) {
+                            console.log('🗑️ Cache eliminado:', cacheName);
+                            return caches.delete(cacheName);
+                        }
+                    })
+                );
+            })
+            .then(() => {
+                console.log('✅ Service Worker activado');
+                return self.clients.claim();
+            })
+    );
+});
 
-  // CSS / JS / Manifest / imágenes
-  // Internet primero, caché como respaldo
-  event.respondWith(
-    fetch(request, { cache: 'no-store' })
-      .then((response) => {
+// Interceptar peticiones
+self.addEventListener('fetch', (event) => {
+    event.respondWith(
+        caches.match(event.request)
+            .then((cachedResponse) => {
+                if (cachedResponse) {
+                    return cachedResponse;
+                }
 
-        if (response.ok) {
-          const copy = response.clone();
+                return fetch(event.request)
+                    .then((response) => {
+                        if (event.request.method !== 'GET') {
+                            return response;
+                        }
 
-          caches.open(CACHE_NAME)
-            .then((cache) => cache.put(request, copy));
-        }
+                        const responseClone = response.clone();
 
-        return response;
-      })
-      .catch(() => {
-        return caches.match(request);
-      })
-  );
+                        caches.open(CACHE_NAME)
+                            .then((cache) => {
+                                cache.put(event.request, responseClone);
+                            });
+
+                        return response;
+                    })
+                    .catch(() => {
+                        return new Response('Sin conexión', {
+                            status: 503,
+                            statusText: 'Service Unavailable'
+                        });
+                    });
+            })
+    );
+});
+
+// Push notifications
+self.addEventListener('push', (event) => {
+    const options = {
+        body: event.data ? event.data.text() : '¡Alerta de seguridad!',
+        icon: '/icons/icon-192.png',
+        badge: '/icons/icon-72.png',
+        vibrate: [200, 100, 200],
+        requireInteraction: true,
+        actions: [
+            {
+                action: 'view',
+                title: 'Ver vehículo'
+            },
+            {
+                action: 'dismiss',
+                title: 'Ignorar'
+            }
+        ]
+    };
+
+    event.waitUntil(
+        self.registration.showNotification('🚗 Centinela', options)
+    );
+});
+
+// Click en notificaciones
+self.addEventListener('notificationclick', (event) => {
+    event.notification.close();
+
+    if (event.action === 'view') {
+        const urlToOpen = new URL('/', self.location.origin).href;
+        event.waitUntil(
+            clients.matchAll({ type: 'window' })
+                .then((windowClients) => {
+                    for (const client of windowClients) {
+                        if (client.url === urlToOpen && 'focus' in client) {
+                            return client.focus();
+                        }
+                    }
+                    if (clients.openWindow) {
+                        return clients.openWindow('/');
+                    }
+                })
+        );
+    }
 });
