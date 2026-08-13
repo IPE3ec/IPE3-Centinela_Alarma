@@ -1,5 +1,6 @@
 /* =========================================================================
-   CENTINELA v5.0 — Estilos
+   CENTINELA v5.0 — Estilos Corregidos
+   Incluye: Safe areas iOS, mejoras de accesibilidad, animaciones optimizadas
    ========================================================================= */
 
 /* ---------- Variables de tema ---------- */
@@ -55,7 +56,11 @@
   --border-soft:#2A0D0D;
 }
 
-* { box-sizing:border-box; }
+* { 
+  box-sizing:border-box;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
 
 html, body{
   margin:0;
@@ -66,6 +71,13 @@ html, body{
   -webkit-tap-highlight-color: transparent;
   overscroll-behavior:none;
   height:100%;
+  /* ✅ NUEVO: Previene zoom en inputs en iOS */
+  touch-action: manipulation;
+}
+
+/* ✅ NUEVO: Previene zoom en inputs específicamente */
+input, select, textarea {
+  font-size: 16px;
 }
 
 button{
@@ -74,6 +86,8 @@ button{
   border:none;
   background:none;
   color:inherit;
+  /* ✅ NUEVO: Mejora táctil */
+  touch-action: manipulation;
 }
 
 a{
@@ -84,7 +98,89 @@ a{
   cursor:pointer;
 }
 
-svg{ width:100%; height:100%; }
+svg{ 
+  width:100%; 
+  height:100%;
+  /* ✅ NUEVO: Previene selección de SVG */
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+/* ✅ NUEVO: Mejora de accesibilidad - focus visible */
+button:focus-visible,
+.tab:focus-visible,
+.switch:focus-visible,
+a:focus-visible,
+input[type="range"]:focus-visible {
+  outline:2px solid var(--accent);
+  outline-offset:2px;
+  border-radius: var(--radius-sm);
+}
+
+/* ✅ NUEVO: Oculta outline por defecto en mouse */
+button:focus:not(:focus-visible),
+.tab:focus:not(:focus-visible),
+.switch:focus:not(:focus-visible) {
+  outline: none;
+}
+
+/* =========================================================================
+   ADVERTENCIA DE NAVEGADOR NO COMPATIBLE
+   ========================================================================= */
+.ble-warning{
+  position:fixed;
+  top:60px;
+  left:50%;
+  transform:translateX(-50%);
+  z-index:100;
+  max-width:400px;
+  width:calc(100% - 36px);
+  animation: slideInTop var(--transition-med);
+}
+
+@keyframes slideInTop {
+  from { 
+    opacity: 0; 
+    transform: translate(-50%, -20px); 
+  }
+  to { 
+    opacity: 1; 
+    transform: translate(-50%, 0); 
+  }
+}
+
+.ble-warning-content{
+  display:flex;
+  gap:12px;
+  background:rgba(255,176,32,0.15);
+  border:1px solid var(--warn-dim);
+  border-radius:var(--radius-md);
+  padding:14px;
+  backdrop-filter:blur(8px);
+  box-shadow: var(--shadow-elev);
+}
+
+.ble-warning svg{ 
+  width:24px; 
+  height:24px; 
+  stroke:var(--warn); 
+  flex-shrink:0; 
+}
+
+.ble-warning strong{ 
+  font-size:13px; 
+  color:var(--warn); 
+  display:block; 
+  margin-bottom:4px; 
+  font-weight:700;
+}
+
+.ble-warning p{ 
+  font-size:12px; 
+  color:var(--text-dim); 
+  margin:0; 
+  line-height:1.4;
+}
 
 /* =========================================================================
    APP SHELL
@@ -101,6 +197,8 @@ svg{ width:100%; height:100%; }
     var(--bg);
   transition: background var(--transition-med);
   position:relative;
+  /* ✅ NUEVO: Safe area para notch */
+  padding-top: env(safe-area-inset-top, 0);
 }
 
 .app[data-alarm="true"]{
@@ -127,6 +225,9 @@ svg{ width:100%; height:100%; }
   top:0;
   z-index:20;
   background:linear-gradient(to bottom, var(--bg) 70%, transparent);
+  /* ✅ NUEVO: Backdrop blur para efecto glass */
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
 }
 
 .brand{
@@ -144,7 +245,11 @@ svg{ width:100%; height:100%; }
   display:flex;
   align-items:center;
   justify-content:center;
-  transition: background var(--transition-med);
+  transition: background var(--transition-med), transform var(--transition-fast);
+}
+
+.brand-mark:active {
+  transform: scale(0.95);
 }
 
 .brand-name{
@@ -183,9 +288,14 @@ svg{ width:100%; height:100%; }
   color:var(--text-dim);
   cursor:pointer;
   transition: all var(--transition-fast);
+  /* ✅ NUEVO: Mejora área táctil */
+  min-height: 36px;
 }
 
-.status-pill:active{ transform:scale(0.96); }
+.status-pill:active{ 
+  transform:scale(0.96); 
+  background: var(--bg-elev-3);
+}
 
 .status-pill .dot{
   width:7px;
@@ -198,7 +308,9 @@ svg{ width:100%; height:100%; }
 .status-pill.connected{
   color:var(--accent);
   border-color: var(--accent-dim);
+  background: rgba(62, 213, 152, 0.08);
 }
+
 .status-pill.connected .dot{
   background:var(--accent);
   box-shadow:0 0 0 3px var(--accent-glow);
@@ -227,6 +339,14 @@ svg{ width:100%; height:100%; }
   font-weight:700;
   letter-spacing:0.4px;
   animation: alarmBadgePulse 1s ease-in-out infinite;
+  cursor: pointer;
+  transition: transform var(--transition-fast);
+  /* ✅ NUEVO: Mejora área táctil */
+  min-height: 36px;
+}
+
+.alarm-badge:active {
+  transform: scale(0.95);
 }
 
 .alarm-badge-dot{
@@ -253,8 +373,10 @@ svg{ width:100%; height:100%; }
 .screen{
   display:none;
   flex-direction:column;
-  padding:6px 18px 110px;
+  padding:6px 18px calc(110px + env(safe-area-inset-bottom, 0px));
   animation: screenIn var(--transition-med);
+  /* ✅ NUEVO: Mejora scroll en iOS */
+  -webkit-overflow-scrolling: touch;
 }
 
 .screen.active{ display:flex; }
@@ -309,7 +431,9 @@ svg{ width:100%; height:100%; }
   position:absolute;
   border-radius:50%;
   border:1px solid var(--border);
+  transition: border-color var(--transition-med);
 }
+
 .ring.r1{ width:190px; height:190px; }
 .ring.r2{ width:158px; height:158px; opacity:0.7; }
 .ring.r3{ width:128px; height:128px; opacity:0.5; }
@@ -336,6 +460,13 @@ svg{ width:100%; height:100%; }
   justify-content:center;
   gap:6px;
   transition: all var(--transition-med);
+  cursor: pointer;
+  /* ✅ NUEVO: Mejora táctil */
+  touch-action: manipulation;
+}
+
+.shield-btn:active {
+  transform: scale(0.96);
 }
 
 .shield-btn svg{
@@ -351,6 +482,7 @@ svg{ width:100%; height:100%; }
   font-weight:700;
   letter-spacing:0.6px;
   color:var(--text-dim);
+  transition: color var(--transition-med);
 }
 
 .app[data-armed="true"] .shield-btn{
@@ -358,6 +490,7 @@ svg{ width:100%; height:100%; }
   border-color:var(--accent);
   box-shadow:0 0 0 8px var(--accent-glow);
 }
+
 .app[data-armed="true"] .shield-btn svg{ stroke:var(--accent); }
 .app[data-armed="true"] .shield-label{ color:var(--accent); }
 
@@ -367,6 +500,7 @@ svg{ width:100%; height:100%; }
   box-shadow:0 0 0 8px var(--danger-glow);
   animation: shieldAlarmShake 0.35s ease-in-out infinite;
 }
+
 .app[data-alarm="true"] .shield-btn svg{ stroke:var(--danger); }
 .app[data-alarm="true"] .shield-label{ color:var(--danger); }
 
@@ -381,7 +515,9 @@ svg{ width:100%; height:100%; }
   font-size:13px;
   color:var(--text-dim);
   margin:0 0 22px;
+  line-height: 1.5;
 }
+
 .shield-sub b{ color:var(--text); font-weight:600; }
 
 /* =========================================================================
@@ -399,6 +535,11 @@ svg{ width:100%; height:100%; }
   border:1px solid var(--border-soft);
   border-radius:var(--radius-md);
   padding:13px 14px;
+  transition: background var(--transition-fast), border-color var(--transition-fast);
+}
+
+.stat:active {
+  background: var(--bg-elev-3);
 }
 
 .stat-label{
@@ -410,6 +551,7 @@ svg{ width:100%; height:100%; }
   font-weight:600;
   margin-bottom:8px;
 }
+
 .stat-label svg{ width:14px; height:14px; stroke:var(--text-dim); }
 
 .stat-value{
@@ -428,6 +570,7 @@ svg{ width:100%; height:100%; }
   justify-content:space-between;
   margin:6px 0 10px;
 }
+
 .section-head h2{
   font-size:14.5px;
   font-weight:700;
@@ -454,6 +597,11 @@ svg{ width:100%; height:100%; }
   border-radius:var(--radius-md);
   padding:12px 14px;
   animation: eventIn var(--transition-med);
+  transition: background var(--transition-fast);
+}
+
+.event:active {
+  background: var(--bg-elev-3);
 }
 
 @keyframes eventIn{
@@ -471,6 +619,7 @@ svg{ width:100%; height:100%; }
   justify-content:center;
   background:var(--bg-elev-3);
 }
+
 .event-icon svg{ width:16px; height:16px; stroke:var(--text-dim); }
 
 .event-icon.ok{ background:rgba(62,213,152,0.12); }
@@ -483,6 +632,7 @@ svg{ width:100%; height:100%; }
 .event-icon.danger svg{ stroke:var(--danger); }
 
 .event-body{ flex:1; min-width:0; }
+
 .event-title{
   font-size:13.5px;
   font-weight:600;
@@ -491,6 +641,7 @@ svg{ width:100%; height:100%; }
   overflow:hidden;
   text-overflow:ellipsis;
 }
+
 .event-time{
   font-size:11.5px;
   color:var(--text-dim);
@@ -507,9 +658,37 @@ svg{ width:100%; height:100%; }
   border:1px solid var(--border-soft);
   margin-bottom:16px;
   height:230px;
+  background: var(--bg-elev-2);
 }
 
-.map-geo{ width:100%; height:100%; background:var(--bg-elev-2); }
+.map-geo{ 
+  width:100%; 
+  height:100%; 
+  background:var(--bg-elev-2);
+  /* ✅ NUEVO: Previene interacción durante carga */
+  pointer-events: auto;
+}
+
+/* ✅ NUEVO: Indicador de carga del mapa */
+.map-geo.loading::after {
+  content: 'Cargando mapa...';
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--bg-elev-2);
+  color: var(--text-dim);
+  font-size: 13px;
+  font-weight: 600;
+  z-index: 1;
+  animation: fadeInOut 1.5s ease-in-out infinite;
+}
+
+@keyframes fadeInOut {
+  0%, 100% { opacity: 0.4; }
+  50% { opacity: 1; }
+}
 
 .map-badge{
   position:absolute;
@@ -518,13 +697,16 @@ svg{ width:100%; height:100%; }
   bottom:10px;
   background:rgba(10,13,18,0.85);
   backdrop-filter:blur(6px);
+  -webkit-backdrop-filter:blur(6px);
   border:1px solid var(--border-soft);
   border-radius:var(--radius-sm);
   padding:9px 12px;
   font-size:12px;
   color:var(--text-dim);
+  z-index: 2;
 }
-.map-badge b{ color:var(--text); }
+
+.map-badge b{ color:var(--text); font-weight:600; }
 
 /* =========================================================================
    LIST ROW / SWITCH
@@ -539,6 +721,14 @@ svg{ width:100%; height:100%; }
   border-radius:var(--radius-md);
   padding:14px 16px;
   margin-bottom:9px;
+  transition: all var(--transition-fast);
+  /* ✅ NUEVO: Mejora área táctil */
+  min-height: 60px;
+}
+
+.list-row:active {
+  background: var(--bg-elev-3);
+  transform: scale(0.99);
 }
 
 .list-row-label{
@@ -546,10 +736,12 @@ svg{ width:100%; height:100%; }
   font-weight:600;
   color:var(--text);
 }
+
 .list-row-sub{
   font-size:12px;
   color:var(--text-dim);
   margin-top:2px;
+  line-height:1.4;
 }
 
 .switch{
@@ -560,8 +752,12 @@ svg{ width:100%; height:100%; }
   border:1px solid var(--border);
   position:relative;
   flex-shrink:0;
-  transition: background var(--transition-fast);
+  transition: background var(--transition-fast), border-color var(--transition-fast);
+  cursor: pointer;
+  /* ✅ NUEVO: Mejora área táctil */
+  padding: 2px;
 }
+
 .switch::after{
   content:'';
   position:absolute;
@@ -572,8 +768,18 @@ svg{ width:100%; height:100%; }
   border-radius:50%;
   background:var(--text-dim);
   transition: all var(--transition-fast);
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
 }
-.switch.on{ background:var(--accent-dim); border-color:var(--accent); }
+
+.switch:active::after {
+  width: 24px;
+}
+
+.switch.on{ 
+  background:var(--accent-dim); 
+  border-color:var(--accent); 
+}
+
 .switch.on::after{
   left:20px;
   background:var(--accent);
@@ -592,9 +798,15 @@ svg{ width:100%; height:100%; }
   padding:16px;
   margin-bottom:20px;
   cursor:pointer;
-  transition: border-color var(--transition-fast);
+  transition: all var(--transition-fast);
+  width: 100%;
+  text-align: left;
 }
-.key-link:active{ transform:scale(0.99); }
+
+.key-link:active{ 
+  transform:scale(0.99); 
+  background: var(--bg-elev-3);
+}
 
 .key-link-icon{
   width:36px;
@@ -603,8 +815,13 @@ svg{ width:100%; height:100%; }
   background:var(--bg-elev-3);
   padding:8px;
   flex-shrink:0;
+  transition: background var(--transition-fast);
 }
-.key-link-icon svg{ stroke:var(--text-dim); }
+
+.key-link-icon svg{ 
+  stroke:var(--text-dim); 
+  transition: stroke var(--transition-fast);
+}
 
 .beam{
   flex:1;
@@ -614,12 +831,14 @@ svg{ width:100%; height:100%; }
   gap:5px;
   transition:opacity var(--transition-med);
 }
+
 .beam-dot{
   width:5px;
   height:5px;
   border-radius:50%;
   background:var(--accent);
 }
+
 .beam-dot:nth-child(2){ animation: beamPulse 1.4s infinite 0.15s; }
 .beam-dot:nth-child(1){ animation: beamPulse 1.4s infinite 0s; }
 .beam-dot:nth-child(3){ animation: beamPulse 1.4s infinite 0.3s; }
@@ -630,8 +849,22 @@ svg{ width:100%; height:100%; }
 }
 
 .key-link-status{ flex-shrink:0; text-align:right; }
-.key-link-title{ font-size:13px; font-weight:600; }
-.key-link-sub{ font-size:11.5px; color:var(--text-dim); margin-top:2px; }
+
+.key-link-title{ 
+  font-size:13px; 
+  font-weight:600; 
+  color: var(--text);
+}
+
+.key-link-sub{ 
+  font-size:11.5px; 
+  color:var(--text-dim); 
+  margin-top:2px; 
+}
+
+.key-link.connected .key-link-icon{ 
+  background: rgba(62, 213, 152, 0.12);
+}
 
 .key-link.connected .key-link-icon svg{ stroke:var(--accent); }
 
@@ -660,14 +893,28 @@ svg{ width:100%; height:100%; }
   font-weight:600;
   color:var(--text-dim);
   transition: all var(--transition-fast);
+  cursor: pointer;
+  /* ✅ NUEVO: Mejora área táctil */
+  min-height: 44px;
 }
-.segmented-btn svg{ width:16px; height:16px; stroke:currentColor; }
+
+.segmented-btn svg{ 
+  width:16px; 
+  height:16px; 
+  stroke:currentColor; 
+  transition: stroke var(--transition-fast);
+}
+
+.segmented-btn:active {
+  transform: scale(0.97);
+}
 
 .segmented-btn.active{
   background:var(--bg-elev-3);
   color:var(--text);
   box-shadow:0 1px 0 rgba(255,255,255,0.03) inset;
 }
+
 .segmented-btn.active svg{ stroke:var(--accent); }
 
 /* =========================================================================
@@ -687,15 +934,18 @@ svg{ width:100%; height:100%; }
   justify-content:space-between;
   margin-bottom:10px;
 }
+
 .window-simple-label{
   font-size:13.5px;
   font-weight:600;
   color:var(--text);
 }
+
 .window-simple-pct{
   font-family:var(--font-mono);
   font-size:13px;
   color:var(--text-dim);
+  font-weight: 600;
 }
 
 .window-simple-track{
@@ -705,12 +955,16 @@ svg{ width:100%; height:100%; }
   background:var(--bg-elev-3);
   overflow:hidden;
   margin-bottom:14px;
+  position: relative;
 }
+
 .window-simple-fill{
   height:100%;
   background:var(--accent);
   border-radius:var(--radius-pill);
   transition: width var(--transition-med), background var(--transition-med);
+  /* ✅ NUEVO: Animación suave */
+  will-change: width;
 }
 
 .window-simple-btns{
@@ -728,16 +982,22 @@ svg{ width:100%; height:100%; }
   font-weight:700;
   color:var(--text);
   transition: all var(--transition-fast);
+  cursor: pointer;
+  /* ✅ NUEVO: Mejora área táctil */
+  min-height: 48px;
 }
+
 .window-simple-btn:active{
   background:var(--accent-dim);
   border-color:var(--accent);
   color:var(--accent);
   transform:scale(0.97);
 }
+
 .window-simple-btn:disabled{
   opacity:0.4;
   cursor:not-allowed;
+  pointer-events: none;
 }
 
 /* =========================================================================
@@ -754,8 +1014,15 @@ svg{ width:100%; height:100%; }
   margin-bottom:12px;
   font-size:12.5px;
   color:var(--warn);
+  animation: slideInTop var(--transition-med);
 }
-.fault-banner svg{ width:18px; height:18px; stroke:var(--warn); flex-shrink:0; }
+
+.fault-banner svg{ 
+  width:18px; 
+  height:18px; 
+  stroke:var(--warn); 
+  flex-shrink:0; 
+}
 
 .light-grid{
   display:grid;
@@ -774,25 +1041,40 @@ svg{ width:100%; height:100%; }
   border-radius:var(--radius-md);
   padding:12px 4px;
   transition: all var(--transition-fast);
+  cursor: pointer;
+  /* ✅ NUEVO: Mejora área táctil */
+  min-height: 74px;
+}
+
+.light-item:active {
+  transform: scale(0.95);
 }
 
 .light-item-icon{
   width:22px;
   height:22px;
 }
-.light-item-icon svg{ stroke:var(--text-dim); transition: stroke var(--transition-fast); }
+
+.light-item-icon svg{ 
+  stroke:var(--text-dim); 
+  transition: stroke var(--transition-fast); 
+}
 
 .light-item-label{
   font-size:10.5px;
   font-weight:600;
   color:var(--text-dim);
   text-align:center;
+  line-height: 1.2;
+  transition: color var(--transition-fast);
 }
 
 .light-item.active{
   background:var(--accent-dim);
   border-color:var(--accent);
+  box-shadow: 0 0 0 2px var(--accent-glow);
 }
+
 .light-item.active .light-item-icon svg{ stroke:var(--accent); }
 .light-item.active .light-item-label{ color:var(--accent); }
 
@@ -800,6 +1082,7 @@ svg{ width:100%; height:100%; }
   background:rgba(255,77,79,0.08);
   border-color:var(--danger-dim);
 }
+
 .light-item.fault .light-item-icon svg{ stroke:var(--danger); }
 .light-item.fault .light-item-label{ color:var(--danger); }
 
@@ -826,6 +1109,8 @@ svg{ width:100%; height:100%; }
   font-weight:600;
   color:var(--text);
   transition: all var(--transition-fast);
+  cursor: pointer;
+  text-align: left;
 }
 
 .ctrl-btn svg{
@@ -833,6 +1118,7 @@ svg{ width:100%; height:100%; }
   height:20px;
   stroke:var(--text-dim);
   flex-shrink:0;
+  transition: stroke var(--transition-fast);
 }
 
 .ctrl-btn:not(.full){
@@ -850,18 +1136,21 @@ svg{ width:100%; height:100%; }
 .ctrl-btn.danger{
   color:var(--danger);
 }
+
 .ctrl-btn.danger svg{ stroke:var(--danger); }
 
-.ctrl-btn:active{ transform:scale(0.98); }
+.ctrl-btn:active{ 
+  transform:scale(0.98); 
+  background: var(--bg-elev-3);
+}
 
 .ctrl-btn:disabled,
 .ctrl-btn.disabled{
   opacity:0.4;
   cursor:not-allowed;
   filter:grayscale(0.4);
+  pointer-events: none;
 }
-.ctrl-btn:disabled:active,
-.ctrl-btn.disabled:active{ transform:none; }
 
 /* =========================================================================
    CÁMARA
@@ -880,13 +1169,20 @@ svg{ width:100%; height:100%; }
   margin-bottom:18px;
   overflow:hidden;
 }
-.cam-feed svg{ width:40px; height:40px; stroke:var(--text-faint); }
+
+.cam-feed svg{ 
+  width:40px; 
+  height:40px; 
+  stroke:var(--text-faint); 
+}
+
 .cam-feed p{
   font-size:12.5px;
   color:var(--text-dim);
   margin:0;
   text-align:center;
   padding:0 30px;
+  line-height: 1.4;
 }
 
 .rec{
@@ -897,13 +1193,16 @@ svg{ width:100%; height:100%; }
   align-items:center;
   gap:6px;
   background:rgba(0,0,0,0.5);
+  backdrop-filter: blur(4px);
   border-radius:var(--radius-pill);
   padding:5px 10px;
   font-size:10.5px;
   font-weight:700;
   letter-spacing:0.4px;
   color:var(--text);
+  z-index: 2;
 }
+
 .rec .dot{
   width:6px;
   height:6px;
@@ -917,6 +1216,7 @@ svg{ width:100%; height:100%; }
   grid-template-columns:repeat(3, 1fr);
   gap:8px;
 }
+
 .gallery-item{
   aspect-ratio:1;
   border-radius:var(--radius-sm);
@@ -926,13 +1226,24 @@ svg{ width:100%; height:100%; }
   align-items:center;
   justify-content:center;
   padding:22%;
+  transition: all var(--transition-fast);
+  cursor: pointer;
 }
+
+.gallery-item:active {
+  background: var(--bg-elev-3);
+  transform: scale(0.95);
+}
+
 .gallery-item svg{ stroke:var(--text-faint); }
 
 /* =========================================================================
    AJUSTES
    ========================================================================= */
-.settings-group{ margin-bottom:22px; }
+.settings-group{ 
+  margin-bottom:22px; 
+}
+
 .settings-group h3{
   font-size:12px;
   text-transform:uppercase;
@@ -946,6 +1257,7 @@ svg{ width:100%; height:100%; }
   font-size:11.5px;
   color:var(--text-dim);
   margin:0 0 9px 4px;
+  line-height: 1.4;
 }
 
 .proximity-meter{
@@ -955,12 +1267,14 @@ svg{ width:100%; height:100%; }
   padding:14px 16px;
   margin-bottom:9px;
 }
+
 .proximity-meter-top{
   display:flex;
   align-items:center;
   justify-content:space-between;
   margin-bottom:10px;
 }
+
 .proximity-meter-val{
   font-family:var(--font-mono);
   font-size:12.5px;
@@ -976,7 +1290,9 @@ svg{ width:100%; height:100%; }
   border-radius:var(--radius-pill);
   background:var(--bg-elev-3);
   outline:none;
+  cursor: pointer;
 }
+
 .range::-webkit-slider-thumb{
   -webkit-appearance:none;
   width:18px;
@@ -984,17 +1300,28 @@ svg{ width:100%; height:100%; }
   border-radius:50%;
   background:var(--accent);
   border:3px solid var(--bg);
-  box-shadow:0 0 0 1px var(--accent);
+  box-shadow:0 0 0 1px var(--accent), 0 2px 4px rgba(0,0,0,0.3);
   cursor:pointer;
+  transition: transform var(--transition-fast);
 }
+
+.range::-webkit-slider-thumb:active {
+  transform: scale(1.2);
+}
+
 .range::-moz-range-thumb{
   width:18px;
   height:18px;
   border-radius:50%;
   background:var(--accent);
   border:3px solid var(--bg);
-  box-shadow:0 0 0 1px var(--accent);
+  box-shadow:0 0 0 1px var(--accent), 0 2px 4px rgba(0,0,0,0.3);
   cursor:pointer;
+  transition: transform var(--transition-fast);
+}
+
+.range::-moz-range-thumb:active {
+  transform: scale(1.2);
 }
 
 .range-labels{
@@ -1014,11 +1341,14 @@ svg{ width:100%; height:100%; }
   display:flex;
   background:rgba(10,13,18,0.9);
   backdrop-filter:blur(14px);
+  -webkit-backdrop-filter:blur(14px);
   border-top:1px solid var(--border-soft);
-  padding:8px 6px calc(8px + env(safe-area-inset-bottom));
+  /* ✅ NUEVO: Safe area para home indicator iOS */
+  padding:8px 6px calc(8px + env(safe-area-inset-bottom, 0px));
   max-width:480px;
   margin:0 auto;
   width:100%;
+  z-index: 10;
 }
 
 .tab{
@@ -1030,12 +1360,33 @@ svg{ width:100%; height:100%; }
   padding:6px 0;
   color:var(--text-faint);
   border-radius:var(--radius-sm);
-  transition: color var(--transition-fast);
+  transition: color var(--transition-fast), background var(--transition-fast);
+  cursor: pointer;
+  text-decoration: none;
+  /* ✅ NUEVO: Mejora área táctil */
+  min-height: 52px;
+  justify-content: center;
 }
-.tab svg{ width:21px; height:21px; stroke:currentColor; }
-.tab span{ font-size:10px; font-weight:600; }
 
-.tab.active{ color:var(--accent); }
+.tab svg{ 
+  width:21px; 
+  height:21px; 
+  stroke:currentColor; 
+  transition: stroke var(--transition-fast);
+}
+
+.tab span{ 
+  font-size:10px; 
+  font-weight:600; 
+}
+
+.tab:active {
+  background: var(--bg-elev-2);
+}
+
+.tab.active{ 
+  color:var(--accent); 
+}
 
 .app[data-alarm="true"] .tab.active{ color:var(--danger); }
 
@@ -1045,7 +1396,7 @@ svg{ width:100%; height:100%; }
 .toast{
   position:fixed;
   left:50%;
-  bottom:96px;
+  bottom:calc(96px + env(safe-area-inset-bottom, 0px));
   transform:translate(-50%, 16px);
   max-width:400px;
   width:calc(100% - 48px);
@@ -1063,14 +1414,30 @@ svg{ width:100%; height:100%; }
   z-index:200;
   white-space:pre-line;
   text-align:center;
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
 }
+
 .toast.show{
   opacity:1;
   transform:translate(-50%, 0);
+  pointer-events: auto;
 }
-.toast.success{ border-color:var(--accent-dim); }
-.toast.error{ border-color:var(--danger-dim); }
-.toast.warn{ border-color:var(--warn-dim); }
+
+.toast.success{ 
+  border-color:var(--accent-dim); 
+  background: rgba(62, 213, 152, 0.15);
+}
+
+.toast.error{ 
+  border-color:var(--danger-dim); 
+  background: rgba(255, 77, 79, 0.15);
+}
+
+.toast.warn{ 
+  border-color:var(--warn-dim); 
+  background: rgba(255, 176, 32, 0.15);
+}
 
 /* =========================================================================
    OVERLAYS / MODALES
@@ -1080,6 +1447,7 @@ svg{ width:100%; height:100%; }
   inset:0;
   background:rgba(6,8,11,0.72);
   backdrop-filter:blur(6px);
+  -webkit-backdrop-filter:blur(6px);
   display:flex;
   align-items:center;
   justify-content:center;
@@ -1087,6 +1455,7 @@ svg{ width:100%; height:100%; }
   padding:24px;
   animation: overlayIn var(--transition-med);
 }
+
 .overlay[hidden]{ display:none; }
 
 @keyframes overlayIn{
@@ -1119,6 +1488,7 @@ svg{ width:100%; height:100%; }
   border-radius:16px;
   background:var(--accent-dim);
 }
+
 .lock-icon svg{ stroke:var(--accent); }
 
 .lock-title{
@@ -1126,6 +1496,7 @@ svg{ width:100%; height:100%; }
   font-size:19px;
   font-weight:700;
   margin-bottom:6px;
+  color: var(--text);
 }
 
 .lock-sub{
@@ -1145,11 +1516,20 @@ svg{ width:100%; height:100%; }
   font-weight:700;
   margin-bottom:10px;
   transition: all var(--transition-fast);
+  cursor: pointer;
+  /* ✅ NUEVO: Mejora área táctil */
+  min-height: 48px;
 }
-.btn-primary:active{ transform:scale(0.98); }
+
+.btn-primary:active{ 
+  transform:scale(0.98); 
+  background: var(--accent-dim);
+}
+
 .btn-primary:disabled{
   opacity:0.35;
   cursor:not-allowed;
+  pointer-events: none;
 }
 
 .btn-secondary{
@@ -1162,8 +1542,15 @@ svg{ width:100%; height:100%; }
   font-size:14px;
   font-weight:600;
   transition: all var(--transition-fast);
+  cursor: pointer;
+  /* ✅ NUEVO: Mejora área táctil */
+  min-height: 48px;
 }
-.btn-secondary:active{ transform:scale(0.98); }
+
+.btn-secondary:active{ 
+  transform:scale(0.98); 
+  background: var(--bg-elev-2);
+}
 
 /* ---- PIN pad ---- */
 .pin-dots{
@@ -1172,6 +1559,7 @@ svg{ width:100%; height:100%; }
   gap:12px;
   margin-bottom:8px;
 }
+
 .pin-dots span{
   width:13px;
   height:13px;
@@ -1180,13 +1568,23 @@ svg{ width:100%; height:100%; }
   background:transparent;
   transition: all var(--transition-fast);
 }
+
 .pin-dots span.filled{
   background:var(--accent);
   border-color:var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-glow);
 }
+
 .pin-dots span.error{
   background:var(--danger);
   border-color:var(--danger);
+  animation: shakeError 0.4s ease-in-out;
+}
+
+@keyframes shakeError {
+  0%, 100% { transform: translateX(0); }
+  25% { transform: translateX(-4px); }
+  75% { transform: translateX(4px); }
 }
 
 .pin-error{
@@ -1203,6 +1601,7 @@ svg{ width:100%; height:100%; }
   gap:12px;
   margin:14px 0 18px;
 }
+
 .pin-pad button{
   aspect-ratio:1;
   border-radius:50%;
@@ -1212,10 +1611,20 @@ svg{ width:100%; height:100%; }
   font-weight:600;
   color:var(--text);
   transition: all var(--transition-fast);
+  cursor: pointer;
+  /* ✅ NUEVO: Mejora área táctil */
+  min-height: 56px;
 }
+
 .pin-pad button:active{
   background:var(--accent-dim);
+  border-color: var(--accent);
   transform:scale(0.94);
+}
+
+.pin-pad button:disabled {
+  opacity: 0;
+  pointer-events: none;
 }
 
 /* ---- Checklist de arranque / apagado remoto ---- */
@@ -1228,8 +1637,14 @@ svg{ width:100%; height:100%; }
   padding:12px;
   border-radius:16px;
   background:var(--bg-elev-3);
+  transition: background var(--transition-fast);
 }
-.checklist-icon svg{ stroke:var(--accent); }
+
+.checklist-icon svg{ 
+  stroke:var(--accent); 
+  transition: stroke var(--transition-fast);
+}
+
 .checklist-icon.blocked svg{ stroke:var(--danger); }
 .checklist-icon.blocked{ background:rgba(255,77,79,0.12); }
 
@@ -1249,6 +1664,7 @@ svg{ width:100%; height:100%; }
   border:1px solid var(--border-soft);
   border-radius:var(--radius-sm);
   padding:11px 13px;
+  transition: all var(--transition-fast);
 }
 
 .checklist-item-icon{
@@ -1260,12 +1676,26 @@ svg{ width:100%; height:100%; }
   align-items:center;
   justify-content:center;
   background:var(--bg-elev-2);
+  transition: background var(--transition-fast);
 }
-.checklist-item-icon svg{ width:12px; height:12px; }
+
+.checklist-item-icon svg{ 
+  width:12px; 
+  height:12px; 
+  transition: stroke var(--transition-fast);
+}
+
+.checklist-item.ok{ 
+  border-color: var(--accent-dim);
+}
 
 .checklist-item.ok .checklist-item-icon{ background:rgba(62,213,152,0.15); }
 .checklist-item.ok .checklist-item-icon svg{ stroke:var(--accent); }
 .checklist-item.ok .checklist-item-text{ color:var(--text); }
+
+.checklist-item.fail{ 
+  border-color: var(--danger-dim);
+}
 
 .checklist-item.fail .checklist-item-icon{ background:rgba(255,77,79,0.15); }
 .checklist-item.fail .checklist-item-icon svg{ stroke:var(--danger); }
@@ -1275,6 +1705,7 @@ svg{ width:100%; height:100%; }
   font-size:12.5px;
   font-weight:600;
   color:var(--text-dim);
+  transition: color var(--transition-fast);
 }
 
 /* =========================================================================
@@ -1283,7 +1714,7 @@ svg{ width:100%; height:100%; }
 .install-btn-container{
   position:fixed;
   left:50%;
-  bottom:96px;
+  bottom:calc(96px + env(safe-area-inset-bottom, 0px));
   transform:translateX(-50%);
   display:flex;
   align-items:center;
@@ -1297,12 +1728,109 @@ svg{ width:100%; height:100%; }
   box-shadow:var(--shadow-elev);
   cursor:pointer;
   z-index:150;
+  transition: all var(--transition-fast);
+  animation: slideInBottom var(--transition-med);
+  /* ✅ NUEVO: Mejora área táctil */
+  min-height: 48px;
 }
-.install-btn-container svg{ width:16px; height:16px; stroke:#06140D; }
+
+@keyframes slideInBottom {
+  from {
+    opacity: 0;
+    transform: translate(-50%, 20px);
+  }
+  to {
+    opacity: 1;
+    transform: translate(-50%, 0);
+  }
+}
+
+.install-btn-container:active {
+  transform: translate(-50%, 2px) scale(0.98);
+}
+
+.install-btn-container svg{ 
+  width:16px; 
+  height:16px; 
+  stroke:#06140D; 
+}
 
 /* =========================================================================
    RESPONSIVE / AJUSTES MENORES
    ========================================================================= */
 @media (max-width:360px){
   .light-grid{ grid-template-columns:repeat(3, 1fr); }
+  .ctrl-grid{ grid-template-columns: 1fr; }
+}
+
+/* ✅ NUEVO: Optimización para pantallas pequeñas */
+@media (max-height: 600px) {
+  .shield-wrap {
+    width: 150px;
+    height: 150px;
+  }
+  
+  .shield-btn {
+    width: 88px;
+    height: 88px;
+  }
+  
+  .shield-btn svg {
+    width: 28px;
+    height: 28px;
+  }
+  
+  .grid {
+    gap: 8px;
+  }
+}
+
+/* ✅ NUEVO: Modo landscape */
+@media (orientation: landscape) and (max-height: 500px) {
+  .statusbar {
+    padding: 10px 18px 6px;
+  }
+  
+  .screen {
+    padding: 4px 18px calc(90px + env(safe-area-inset-bottom, 0px));
+  }
+  
+  .shield-wrap {
+    margin: 4px auto 12px;
+  }
+}
+
+/* ✅ NUEVO: Reducción de movimiento (a11y) */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+  
+  .ring.sweep {
+    animation: none;
+  }
+  
+  .beam-dot {
+    animation: none;
+    opacity: 0.6;
+  }
+}
+
+/* ✅ NUEVO: Modo de alto contraste */
+@media (prefers-contrast: high) {
+  :root {
+    --border: #3A4555;
+    --border-soft: #2A3540;
+    --text-dim: #A5B0C0;
+  }
+  
+  .status-pill.connected,
+  .light-item.active,
+  .switch.on {
+    border-width: 2px;
+  }
 }
