@@ -57,6 +57,31 @@
             background: #0A0D12;
             overflow: hidden;
         }
+        
+        /* ✅ CORREGIDO: Permitir scroll en las pantallas */
+        .screens {
+            flex: 1;
+            overflow-y: auto;
+            overflow-x: hidden;
+            -webkit-overflow-scrolling: touch;
+            scroll-behavior: smooth;
+        }
+        
+        .screen {
+            display: none;
+            padding: 16px 16px 90px 16px;
+            min-height: 100%;
+            overflow-y: visible;
+        }
+        
+        .screen.active {
+            display: block;
+        }
+
+        /* ✅ BOTÓN DE INSTALACIÓN SIEMPRE OCULTO */
+        .install-btn-container {
+            display: none !important;
+        }
     </style>
 </head>
 <body>
@@ -102,7 +127,7 @@
     </div>
 
     <!-- ========================= CONTENEDOR DE PANTALLAS ========================= -->
-    <div class="screens">
+    <div class="screens" id="screensContainer">
 
         <!-- ===================== INICIO ===================== -->
         <section class="screen active" id="screen-inicio" data-screen="inicio" role="main" aria-labelledby="screen-inicio-title">
@@ -247,6 +272,9 @@
                     <div class="event-time">Ayer · 18:20 – 18:52</div>
                 </div>
             </div>
+            
+            <!-- Espacio extra para scroll -->
+            <div style="height:20px;"></div>
         </section>
 
         <!-- ===================== CONTROL ===================== -->
@@ -451,6 +479,9 @@
             <p style="font-size:11.5px; color:var(--text-dim); text-align:center; margin-top:4px;">
                 El apagado remoto solo se ejecuta con el vehículo detenido y el freno de mano activado.
             </p>
+            
+            <!-- Espacio extra para scroll -->
+            <div style="height:20px;"></div>
         </section>
 
         <!-- ===================== CÁMARA ===================== -->
@@ -521,6 +552,9 @@
                     </svg>
                 </div>
             </div>
+            
+            <!-- Espacio extra para scroll -->
+            <div style="height:20px;"></div>
         </section>
 
         <!-- ===================== AJUSTES ===================== -->
@@ -722,6 +756,9 @@
                     <span style="color:var(--text-dim); font-size:13px;">›</span>
                 </button>
             </div>
+            
+            <!-- Espacio extra para scroll -->
+            <div style="height:20px;"></div>
         </section>
     </div>
 
@@ -852,7 +889,8 @@
 </div>
 
 <!-- ========================= BOTÓN DE INSTALACIÓN ========================= -->
-<div class="install-btn-container" id="installBtn" style="display:none;" onclick="installApp()" role="button" tabindex="0" aria-label="Instalar aplicación Centinela">
+<!-- ✅ OCULTO COMPLETAMENTE -->
+<div class="install-btn-container" id="installBtn" style="display:none !important;" onclick="installApp()" role="button" tabindex="-1" aria-hidden="true">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
         <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
         <polyline points="7 10 12 15 17 10"/>
