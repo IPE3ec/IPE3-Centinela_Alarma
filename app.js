@@ -1,1660 +1,875 @@
-/* =========================================================================
-   CENTINELA v5.0 — Lógica de la aplicación CORREGIDA
-   Compatible con el firmware ESP32 "CENTINELA - FIRMWARE DEFINITIVO v3.7"
-   
-   CORRECCIONES APLICADAS:
-   ✅ AudioContext inicializado correctamente (requiere interacción usuario)
-   ✅ Validación segura de Leaflet antes de usar map
-   ✅ Debounce para eventos duplicados
-   ✅ localStorage con try/catch para quota exceeded
-   ✅ Implementación básica de proximidad RSSI
-   ✅ Verificación de soporte Web Bluetooth al inicio
-   ✅ Manejo de errores mejorado en BLE
-   ✅ Prevención de reconexiones simultáneas
-   ✅ Corregido toggleMode (función incompleta)
-   ✅ Corregido registro de funciones en window
-   ========================================================================= */
-
-(() => {
-  'use strict';
-
-  // ======================== CONSTANTES BLE ========================
-  const BLE_SERVICE_UUID = '12345678-1234-5678-1234-56789abcdef0';
-  const BLE_CMD_UUID     = '12345678-1234-5678-1234-56789abcdef1';
-  const BLE_STATUS_UUID  = '12345678-1234-5678-1234-56789abcdef2';
-  const DEVICE_NAME_PREFIX = 'Centinela';
-
-  // ======================== CLAVES DE ALMACENAMIENTO LOCAL ========================
-  const LS = {
-    vehicleName: 'centinela.vehicleName',
-    vehiclePlate: 'centinela.vehiclePlate',
-    soundOn: 'centinela.soundOn',
-    biometric: 'centinela.biometric',
-    pinHash: 'centinela.pinHash',
-    proximity: 'centinela.proximity',
-    proximitySensitivity: 'centinela.proximitySensitivity',
-    modes: 'centinela.modes',
-    sensors: 'centinela.sensors',
-    events: 'centinela.events'
-  };
-
-  // ======================== ESTADO EN MEMORIA ========================
-  let bleDevice = null;
-  let bleServer = null;
-  let cmdChar = null;
-  let statusChar = null;
-  let bleBusy = false;
-
-  let lastState = null;
-  let previousState = null;
-
-  let checklistMode = null;  // 'start' | 'stop'
-  let pinContext = null;     // 'setup' | 'entry' | 'confirm-stop'
-  let pinBuffer = '';
-  let pinSetupFirstEntry = null;
-
-  let deferredInstallPrompt = null;
-
-  let map = null;
-  let mapMarker = null;
-  let mapInitialized = false;
-
-  let proximityCheckInterval = null;
-
-  let audioCtx = null;
-  let audioUnlocked = false;
-
-  // ======================== REFERENCIAS DOM ========================
-  const $ = (id) => document.getElementById(id);
-
-  const el = {
-    app: $('app'),
-    statusPill: $('statusPill'),
-    statusDot: $('statusDot'),
-    statusPillText: $('statusPillText'),
-    alarmBadge: $('alarmBadge'),
-
-    shieldBtn: $('shieldBtn'),
-    shieldLabel: $('shieldLabel'),
-    shieldSubState: $('shieldSubState'),
-    doorStatus: $('doorStatus'),
-
-    statBattery: $('statBattery'),
-    statMotorTemp: $('statMotorTemp'),
-    statFuel: $('statFuel'),
-    statGps: $('statGps'),
-
-    eventFeed: $('eventFeed'),
-    eventFeedEmpty: $('eventFeedEmpty'),
-
-    keyLinkCard: $('keyLinkCard'),
-    keyLinkTitle: $('keyLinkTitle'),
-    keyLinkSub: $('keyLinkSub'),
-    beam: $('beam'),
-
-    lockBtnClosed: $('lockBtnClosed'),
-    lockBtnOpen: $('lockBtnOpen'),
-
-    windowPct: $('windowPct'),
-    windowFill: $('windowFill'),
-    windowUpBtn: $('windowUpBtn'),
-    windowDownBtn: $('windowDownBtn'),
-
-    lightFaultBanner: $('lightFaultBanner'),
-    lightFaultText: $('lightFaultText'),
-
-    startEngineBtn: $('startEngineBtn'),
-    stopEngineBtn: $('stopEngineBtn'),
-    trunkBtn: $('trunkBtn'),
-    trunkBtnLabel: $('trunkBtnLabel'),
-
-    toast: $('toast'),
-
-    checklistOverlay: $('checklistOverlay'),
-    checklistIcon: $('checklistIcon'),
-    checklistTitle: $('checklistTitle'),
-    checklistSub: $('checklistSub'),
-    checklistItems: $('checklistItems'),
-    checklistConfirmBtn: $('checklistConfirmBtn'),
-
-    pinOverlay: $('pinOverlay'),
-    pinOverlayTitle: $('pinOverlayTitle'),
-    pinOverlaySub: $('pinOverlaySub'),
-    pinDots: $('pinDots'),
-    pinError: $('pinError'),
-
-    configOverlay: $('configOverlay'),
-    lockOverlay: $('lockOverlay'),
-
-    vehicleNameDisplay: $('vehicleNameDisplay'),
-    vehicleNameSetting: $('vehicleNameSetting'),
-    vehiclePlate: $('vehiclePlate'),
-
-    switchBiometric: $('switchBiometric'),
-    bioStatusSub: $('bioStatusSub'),
-    pinStatusSub: $('pinStatusSub'),
-    switchProximity: $('switchProximity'),
-    proximitySlider: $('proximitySlider'),
-    proximityValLabel: $('proximityValLabel'),
-    proximityLiveCard: $('proximityLiveCard'),
-    proximityRssiLabel: $('proximityRssiLabel'),
-    switchSound: $('switchSound'),
-    switchValet: $('switchValet'),
-    switchTaller: $('switchTaller'),
-    switchNinos: $('switchNinos'),
-    switchImpacto: $('switchImpacto'),
-    switchInclinacion: $('switchInclinacion'),
-
-    installBtn: $('installBtn'),
-    bleWarning: $('bleWarning')
-  };
-
-  const PROXIMITY_LABELS = ['Muy cerca', 'Cerca', 'Media', 'Lejos', 'Muy lejos'];
-
-  // =========================================================================
-  // UTILIDADES GENERALES
-  // =========================================================================
-
-  function safeLocalStorageSet(key, value) {
-    try {
-      localStorage.setItem(key, value);
-      return true;
-    } catch (e) {
-      if (e.name === 'QuotaExceededError') {
-        console.warn('localStorage lleno, limpiando eventos antiguos');
-        try {
-          localStorage.removeItem(LS.events);
-          localStorage.setItem(key, value);
-          return true;
-        } catch (e2) {
-          showToast('Almacenamiento local lleno', 'error');
-          return false;
-        }
-      }
-      console.error('Error en localStorage:', e);
-      return false;
-    }
-  }
-
-  function safeLocalStorageGet(key, defaultValue = null) {
-    try {
-      return localStorage.getItem(key) || defaultValue;
-    } catch (e) {
-      console.error('Error leyendo localStorage:', e);
-      return defaultValue;
-    }
-  }
-
-  function soundEnabled() {
-    return safeLocalStorageGet(LS.soundOn, 'on') !== 'off';
-  }
-
-  function vibrate(pattern) {
-    if (soundEnabled() && 'vibrate' in navigator) {
-      try { 
-        navigator.vibrate(pattern); 
-      } catch (e) { 
-        console.warn('Vibración no soportada:', e);
-      }
-    }
-  }
-
-  function ensureAudioCtx() {
-    if (!audioCtx) {
-      const AC = window.AudioContext || window.webkitAudioContext;
-      if (!AC) {
-        console.warn('Web Audio API no soportada');
-        return null;
-      }
-      audioCtx = new AC();
-      
-      if (!audioUnlocked) {
-        const unlockAudio = () => {
-          if (audioCtx.state === 'suspended') {
-            audioCtx.resume().then(() => {
-              audioUnlocked = true;
-              console.log('✅ Audio desbloqueado');
-            });
-          }
-        };
-        
-        document.addEventListener('touchstart', unlockAudio, { once: true });
-        document.addEventListener('click', unlockAudio, { once: true });
-      }
-    }
-    
-    if (audioCtx.state === 'suspended') {
-      audioCtx.resume().catch(e => console.warn('No se pudo reanudar AudioContext:', e));
-    }
-    
-    return audioCtx;
-  }
-
-  function playTone(freqs, durationMs, gainVal = 0.08) {
-    if (!soundEnabled()) return;
-    const ctx = ensureAudioCtx();
-    if (!ctx || ctx.state !== 'running') return;
-    
-    try {
-      const now = ctx.currentTime;
-      freqs.forEach((f, i) => {
-        const osc = ctx.createOscillator();
-        const gain = ctx.createGain();
-        osc.type = 'square';
-        osc.frequency.value = f;
-        gain.gain.value = gainVal;
-        osc.connect(gain);
-        gain.connect(ctx.destination);
-        const start = now + i * (durationMs / 1000);
-        osc.start(start);
-        gain.gain.setValueAtTime(gainVal, start);
-        gain.gain.exponentialRampToValueAtTime(0.001, start + durationMs / 1000);
-        osc.stop(start + durationMs / 1000 + 0.02);
-      });
-    } catch (e) {
-      console.warn('Error reproduciendo tono:', e);
-    }
-  }
-
-  function playEngineStartSound() {
-    playTone([220, 330, 440], 130, 0.09);
-    vibrate([40, 30, 60]);
-  }
-
-  function playEngineStopSound() {
-    playTone([440, 330, 220], 150, 0.09);
-    vibrate([80, 40, 80]);
-  }
-
-  function playConfirmSound() {
-    playTone([700, 900], 90, 0.06);
-  }
-
-  function playErrorSound() {
-    playTone([220, 160], 120, 0.08);
-    vibrate([120]);
-  }
-
-  let toastTimer = null;
-  function showToast(message, type = 'info') {
-    if (!el.toast) return;
-    el.toast.textContent = message;
-    el.toast.className = 'toast show ' + (type === 'error' ? 'error' : type === 'warn' ? 'warn' : type === 'success' ? 'success' : '');
-    clearTimeout(toastTimer);
-    toastTimer = setTimeout(() => {
-      el.toast.classList.remove('show');
-    }, 3200);
-  }
-
-  function formatTime(date = new Date()) {
-    return date.toLocaleTimeString('es-EC', { hour: '2-digit', minute: '2-digit' });
-  }
-
-  // =========================================================================
-  // ACTIVIDAD RECIENTE
-  // =========================================================================
-
-  let eventDebounceTimer = null;
-  let lastEventKey = '';
-
-  const ICONS = {
-    door: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M3 22h18M6 18V9l6-5 6 5v9M9 22V14h6v8"/></svg>',
-    lock: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V7a4 4 0 018 0v4"/></svg>',
-    unlock: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V7a4 4 0 017.6-1.8"/></svg>',
-    light: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="3"/><path d="M12 2v4M12 18v4M4.9 4.9l2.8 2.8M16.3 16.3l2.8 2.8M2 12h4M18 12h4M4.9 19.1l2.8-2.8M16.3 7.7l2.8-2.8"/></svg>',
-    window: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 19V5M6 11l6-6 6 6"/></svg>',
-    shield: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 2l8 3v6c0 5-3.4 8.4-8 11-4.6-2.6-8-6-8-11V5l8-3z"/></svg>',
-    alarm: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 9v4M12 17h.01M10.3 3.9L2.5 17a2 2 0 001.7 3h15.6a2 2 0 001.7-3L13.7 3.9a2 2 0 00-3.4 0z"/></svg>',
-    engine: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M13 2L3 14h7l-1 8 10-12h-7l1-8z"/></svg>',
-    battery: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M13 2L3 14h7l-1 8 10-12h-7l1-8z"/></svg>',
-    info: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M12 8v4M12 16h.01"/></svg>',
-    bluetooth: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="7" y="2" width="10" height="20" rx="2"/><path d="M11 18h2"/></svg>'
-  };
-
-  const LIGHT_LABELS = {
-    LOWBEAM: 'Luces bajas', HIGHBEAM: 'Luces altas', TURN_L: 'Direccional izq.',
-    TURN_R: 'Direccional der.', BRAKE: 'Luz de freno', REVERSE: 'Luz de reversa',
-    FOG: 'Antiniebla', PARK: 'Luces de parqueo'
-  };
-
-  function addEvent(title, iconType = 'ok', iconSvg = ICONS.info) {
-    if (!el.eventFeed) return;
-
-    const eventKey = `${title}-${iconType}`;
-    if (eventKey === lastEventKey) return;
-    lastEventKey = eventKey;
-
-    clearTimeout(eventDebounceTimer);
-    eventDebounceTimer = setTimeout(() => {
-      lastEventKey = '';
-    }, 1000);
-
-    if (el.eventFeedEmpty && el.eventFeedEmpty.parentNode) {
-      el.eventFeedEmpty.remove();
-    }
-
-    const item = document.createElement('div');
-    item.className = 'event';
-    item.innerHTML = `
-      <div class="event-icon ${iconType}">${iconSvg}</div>
-      <div class="event-body">
-        <div class="event-title">${title}</div>
-        <div class="event-time">${formatTime()}</div>
-      </div>`;
-    el.eventFeed.prepend(item);
-
-    const items = el.eventFeed.querySelectorAll('.event');
-    if (items.length > 12) {
-      items[items.length - 1].remove();
-    }
-
-    try {
-      const savedEvents = JSON.parse(safeLocalStorageGet(LS.events, '[]'));
-      savedEvents.unshift({
-        title,
-        iconType,
-        timestamp: Date.now()
-      });
-      const trimmed = savedEvents.slice(0, 50);
-      safeLocalStorageSet(LS.events, JSON.stringify(trimmed));
-    } catch (e) {
-      console.warn('Error guardando evento:', e);
-    }
-  }
-
-  function diffAndLogEvents(prev, next) {
-    if (!prev) return;
-
-    if (prev.doorOpen !== next.doorOpen) {
-      addEvent(next.doorOpen ? '🚪 Puerta abierta' : '🚪 Puerta cerrada',
-        next.doorOpen ? 'warn' : 'ok', ICONS.door);
-    }
-
-    if (prev.locked !== next.locked) {
-      addEvent(next.locked ? '🔒 Seguros cerrados' : '🔓 Seguros abiertos',
-        next.locked ? 'ok' : 'warn', next.locked ? ICONS.lock : ICONS.unlock);
-    }
-
-    if (prev.armed !== next.armed) {
-      addEvent(next.armed ? '🛡️ Sistema armado' : '🛡️ Sistema desarmado',
-        'ok', ICONS.shield);
-    }
-
-    if (!prev.alarmTriggered && next.alarmTriggered) {
-      addEvent('🚨 ¡Alarma disparada!', 'danger', ICONS.alarm);
-    } else if (prev.alarmTriggered && !next.alarmTriggered) {
-      addEvent('🔕 Alarma detenida', 'ok', ICONS.alarm);
-    }
-
-    if (prev.engine !== next.engine) {
-      addEvent(next.engine ? '🚀 Motor encendido' : '🛑 Motor apagado',
-        next.engine ? 'ok' : 'warn', ICONS.engine);
-    }
-
-    if (prev.windowL !== next.windowL || prev.windowR !== next.windowR) {
-      const avgOld = Math.round((prev.windowL + prev.windowR) / 2);
-      const avgNew = Math.round((next.windowL + next.windowR) / 2);
-      if (avgOld !== avgNew) {
-        addEvent(`🪟 Vidrios ajustados (${avgNew}%)`, 'ok', ICONS.window);
-      }
-    }
-
-    if (prev.lights && next.lights) {
-      Object.keys(next.lights).forEach((id) => {
-        if (prev.lights[id] !== next.lights[id]) {
-          const label = LIGHT_LABELS[id] || id;
-          addEvent(`💡 ${label} ${next.lights[id] ? 'encendida' : 'apagada'}`,
-            next.lights[id] ? 'ok' : 'warn', ICONS.light);
-        }
-      });
-    }
-
-    if (prev.battery !== undefined && next.battery !== undefined) {
-      const wasLow = prev.battery <= 11.8;
-      const isLow = next.battery <= 11.8;
-      if (!wasLow && isLow) {
-        addEvent(`🔋 Batería baja (${next.battery.toFixed(1)}V)`, 'warn', ICONS.battery);
-      }
-    }
-  }
-
-  // =========================================================================
-  // RENDERIZADO DE ESTADO
-  // =========================================================================
-
-  function renderState(state) {
-    previousState = lastState;
-    lastState = state;
-
-    diffAndLogEvents(previousState, state);
-
-    const alarmOn = !!state.alarmTriggered;
-    el.app.setAttribute('data-alarm', alarmOn ? 'true' : 'false');
-    el.app.setAttribute('data-armed', state.armed ? 'true' : 'false');
-    if (el.alarmBadge) el.alarmBadge.hidden = !alarmOn;
-    
-    const themeColorMeta = document.getElementById('themeColorMeta');
-    if (themeColorMeta) {
-      themeColorMeta.setAttribute('content', alarmOn ? '#150707' : '#0A0D12');
-    }
-
-    if (el.shieldLabel) el.shieldLabel.textContent = alarmOn ? '¡ALARMA!' : (state.armed ? 'ARMADO' : 'DESARMADO');
-    if (el.shieldBtn) el.shieldBtn.setAttribute('aria-pressed', state.armed ? 'true' : 'false');
-    if (el.shieldSubState) el.shieldSubState.textContent = alarmOn ? 'en alarma' : (state.armed ? 'activo' : 'inactivo');
-    if (el.doorStatus) el.doorStatus.textContent = state.doorOpen ? 'abiertas' : 'cerradas';
-
-    if (el.statBattery) el.statBattery.textContent = (typeof state.battery === 'number') ? `${state.battery.toFixed(1)}V` : '—';
-    if (el.statMotorTemp) el.statMotorTemp.textContent = state.engine ? 'Encendido' : 'Apagado';
-    if (el.statFuel) el.statFuel.textContent = (state.fuel != null) ? `${state.fuel}%` : 'N/D';
-    if (el.statGps) el.statGps.textContent = state.gpsSignal || 'Sin señal';
-
-    if (el.lockBtnClosed && el.lockBtnOpen) {
-      el.lockBtnClosed.classList.toggle('active', !!state.locked);
-      el.lockBtnOpen.classList.toggle('active', !state.locked);
-      el.lockBtnClosed.setAttribute('aria-pressed', state.locked ? 'true' : 'false');
-      el.lockBtnOpen.setAttribute('aria-pressed', !state.locked ? 'true' : 'false');
-    }
-
-    const avgWindow = Math.round(((state.windowL ?? 0) + (state.windowR ?? 0)) / 2);
-    if (el.windowPct) el.windowPct.textContent = `${avgWindow}%`;
-    if (el.windowFill) el.windowFill.style.width = `${avgWindow}%`;
-    
-    const windowTrack = document.querySelector('.window-simple-track');
-    if (windowTrack) {
-      windowTrack.setAttribute('aria-valuenow', avgWindow);
-    }
-    
-    if (el.windowUpBtn) el.windowUpBtn.disabled = !cmdChar || avgWindow >= 100;
-    if (el.windowDownBtn) el.windowDownBtn.disabled = !cmdChar || avgWindow <= 0;
-
-    document.querySelectorAll('.light-item').forEach((btn) => {
-      const id = btn.dataset.id;
-      const isOn = !!(state.lights && state.lights[id]);
-      btn.classList.toggle('active', isOn);
-      btn.setAttribute('aria-pressed', isOn ? 'true' : 'false');
-    });
-    
-    if (Array.isArray(state.faults) && state.faults.length > 0) {
-      el.lightFaultBanner.style.display = 'flex';
-      el.lightFaultText.textContent = `Falla detectada: ${state.faults.join(', ')}`;
-    } else if (el.lightFaultBanner) {
-      el.lightFaultBanner.style.display = 'none';
-    }
-
-    updateEngineButtonsState(state);
-    updateMap(state);
-
-    if (checklistMode && !el.checklistOverlay.hidden) {
-      buildChecklist(checklistMode);
-    }
-  }
-
-  function startConditionsMet(state) {
-    return !!state.armed && !!state.parked && !!state.locked && !state.doorOpen && !state.engine;
-  }
-
-  function stopConditionsMet(state) {
-    return !!state.remoteStart && !!state.engine && !!state.parked && !!state.locked;
-  }
-
-  function updateEngineButtonsState(state) {
-    const connected = !!cmdChar;
-    if (el.startEngineBtn) {
-      const blocked = !connected || !startConditionsMet(state);
-      el.startEngineBtn.classList.toggle('disabled', blocked);
-      el.startEngineBtn.disabled = blocked;
-    }
-    if (el.stopEngineBtn) {
-      const blocked = !connected || !stopConditionsMet(state);
-      el.stopEngineBtn.classList.toggle('disabled', blocked);
-      el.stopEngineBtn.disabled = blocked;
-    }
-  }
-
-  function updateMap(state) {
-    if (typeof window.L === 'undefined') {
-      console.warn('Leaflet aún no está cargado');
-      return;
-    }
-    
-    const mapEl = document.getElementById('map');
-    if (!mapEl) return;
-
-    if (!state.gpsFix || state.lat == null || state.lng == null) {
-      const mapStatus = document.getElementById('mapStatus');
-      if (mapStatus) mapStatus.textContent = 'sin señal GPS';
-      
-      const mapAddress = document.getElementById('mapAddress');
-      if (mapAddress) mapAddress.textContent = 'Ubicación desconocida';
-      
-      if (!mapInitialized) {
-        mapEl.classList.add('loading');
-      }
-      return;
-    }
-
-    try {
-      if (!map) {
-        mapEl.classList.remove('loading');
-        
-        map = window.L.map(mapEl, { 
-          zoomControl: false, 
-          attributionControl: false 
-        }).setView([state.lat, state.lng], 16);
-        
-        window.L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-          maxZoom: 19
-        }).addTo(map);
-        
-        mapMarker = window.L.circleMarker([state.lat, state.lng], {
-          radius: 8, 
-          color: '#3ED598', 
-          fillColor: '#3ED598', 
-          fillOpacity: 0.9
-        }).addTo(map);
-        
-        mapInitialized = true;
-        console.log('✅ Mapa inicializado correctamente');
-      } else {
-        mapMarker.setLatLng([state.lat, state.lng]);
-        map.panTo([state.lat, state.lng]);
-      }
-
-      const mapSpeed = document.getElementById('mapSpeed');
-      const mapStatus = document.getElementById('mapStatus');
-      if (mapSpeed) mapSpeed.textContent = `${Math.round(state.speedKmh || 0)} km/h`;
-      if (mapStatus) mapStatus.textContent = (state.speedKmh || 0) > 2 ? 'en movimiento' : 'estacionado';
-      
-      const mapAddress = document.getElementById('mapAddress');
-      if (mapAddress) {
-        mapAddress.textContent = `${state.lat.toFixed(4)}°, ${state.lng.toFixed(4)}°`;
-      }
-    } catch (err) {
-      console.error('Error actualizando mapa:', err);
-      mapEl.classList.add('loading');
-    }
-  }
-
-  // =========================================================================
-  // CONEXIÓN BLUETOOTH
-  // =========================================================================
-
-  function setConnectionUI(status) {
-    el.statusPill.classList.remove('connected', 'connecting');
-    el.keyLinkCard.classList.remove('connected');
-
-    if (status === 'connected') {
-      el.statusPill.classList.add('connected');
-      el.statusPillText.textContent = 'Conectado';
-      el.keyLinkTitle.textContent = '🔗 Vinculado por Bluetooth';
-      el.keyLinkSub.textContent = bleDevice?.name || 'Centinela-ESP32';
-      el.keyLinkCard.classList.add('connected');
-      el.beam.style.opacity = '1';
-    } else if (status === 'connecting') {
-      el.statusPill.classList.add('connecting');
-      el.statusPillText.textContent = 'Conectando…';
-      el.keyLinkTitle.textContent = '📡 Buscando vehículo…';
-      el.keyLinkSub.textContent = 'Confirma el PIN 739201 si se solicita';
-      el.beam.style.opacity = '0.6';
-    } else {
-      el.statusPillText.textContent = 'Sin conexión';
-      el.keyLinkTitle.textContent = '📱 Toca para conectar por Bluetooth';
-      el.keyLinkSub.textContent = 'Sin conexión';
-      el.beam.style.opacity = '0.35';
-    }
-  }
-
-  async function connectBLE() {
-    if (bleBusy) {
-      console.log('Conexión BLE ya en proceso...');
-      return;
-    }
-    
-    if (!navigator.bluetooth) {
-      showToast('Este navegador no soporta Bluetooth Web. Usa Chrome/Edge en Android o desktop.', 'error');
-      return;
-    }
-    
-    if (cmdChar) {
-      showToast('Ya estás conectado a tu vehículo', 'info');
-      return;
-    }
-
-    bleBusy = true;
-    setConnectionUI('connecting');
-
-    try {
-      bleDevice = await navigator.bluetooth.requestDevice({
-        filters: [
-          { services: [BLE_SERVICE_UUID] }, 
-          { namePrefix: DEVICE_NAME_PREFIX }
+// ==========================================
+// CENTINELA V5.0 - APP.JS
+// COMPATIBLE CON FIRMWARE ESP32
+// ==========================================
+
+// ==========================================
+// CONFIGURACIÓN GLOBAL
+// ==========================================
+const CONFIG = {
+    SERVICE_UUID: '0000ffe0-0000-1000-8000-00805f9b34fb',
+    CHARACTERISTIC_UUID: '0000ffe1-0000-1000-8000-00805f9b34fb',
+    DEVICE_NAME: 'CENTINELA_BT',
+    RECONNECT_INTERVAL: 5000,
+    STATUS_INTERVAL: 3000
+};
+
+// ==========================================
+// ESTADO DE LA APP
+// ==========================================
+const state = {
+    device: null,
+    characteristic: null,
+    isConnected: false,
+    isArmed: false,
+    isAlarm: false,
+    isEngineOn: false,
+    lockStatus: 'locked', // 'locked' | 'unlocked'
+    batteryVoltage: 0,
+    motorTemp: 0,
+    fuelLevel: 0,
+    gpsSignal: 0,
+    rssi: 0,
+    windowPosition: 0,
+    doorStatus: false,
+    macMaster: '',
+    checklists: {
+        start: [
+            { id: '1', label: 'Freno de mano activado', checked: false },
+            { id: '2', label: 'Palanca en punto muerto o P', checked: false },
+            { id: '3', label: 'No hay obstáculos cerca', checked: false }
         ],
-        optionalServices: [BLE_SERVICE_UUID]
-      });
-
-      bleDevice.addEventListener('gattserverdisconnected', onBleDisconnected);
-
-      bleServer = await bleDevice.gatt.connect();
-      console.log('✅ Conectado al servidor GATT');
-      
-      const service = await bleServer.getPrimaryService(BLE_SERVICE_UUID);
-      console.log('✅ Servicio obtenido');
-      
-      cmdChar = await service.getCharacteristic(BLE_CMD_UUID);
-      statusChar = await service.getCharacteristic(BLE_STATUS_UUID);
-      console.log('✅ Características obtenidas');
-
-      await statusChar.startNotifications();
-      statusChar.addEventListener('characteristicvaluechanged', onStatusNotification);
-      console.log('✅ Notificaciones activadas');
-
-      try {
-        const value = await statusChar.readValue();
-        handleStatusBytes(value);
-      } catch (e) { 
-        console.warn('No se pudo leer estado inicial (algunos dispositivos solo notifican)');
-      }
-
-      setConnectionUI('connected');
-      showToast('✅ Vehículo conectado', 'success');
-      playConfirmSound();
-      addEvent('🔗 Teléfono conectado por Bluetooth', 'ok', ICONS.bluetooth);
-      
-      if (safeLocalStorageGet(LS.proximity) === 'on') {
-        startProximityMonitoring();
-      }
-    } catch (err) {
-      console.error('Error de conexión BLE:', err);
-      setConnectionUI('disconnected');
-      
-      if (err.name === 'NotFoundError') {
-        console.log('Usuario canceló la selección de dispositivo');
-      } else {
-        showToast('No se pudo conectar: ' + err.message, 'error');
-        playErrorSound();
-      }
-    } finally {
-      bleBusy = false;
-    }
-  }
-
-  function onBleDisconnected() {
-    console.log('🔌 Dispositivo BLE desconectado');
-    cmdChar = null;
-    statusChar = null;
-    setConnectionUI('disconnected');
-    showToast('🔌 Se perdió la conexión con el vehículo', 'warn');
-    addEvent('🔌 Conexión Bluetooth perdida', 'danger', ICONS.bluetooth);
-    updateEngineButtonsState(lastState || {});
-    
-    if (proximityCheckInterval) {
-      clearInterval(proximityCheckInterval);
-      proximityCheckInterval = null;
-    }
-  }
-
-  function handleStatusBytes(dataView) {
-    try {
-      const text = new TextDecoder().decode(dataView.buffer || dataView);
-      const state = JSON.parse(text);
-
-      if (state.ack) {
-        handleAck(state.ack, state.ok, state.message);
-      }
-      
-      renderState(state);
-    } catch (e) {
-      console.warn('No se pudo interpretar el estado recibido:', e);
-    }
-  }
-
-  function onStatusNotification(evt) {
-    handleStatusBytes(evt.target.value);
-  }
-
-  function handleAck(ack, ok, message) {
-    if (ack === 'START_ENGINE') {
-      if (ok) { 
-        playEngineStartSound(); 
-        showToast('🚀 Motor arrancado remotamente', 'success'); 
-      } else { 
-        playErrorSound(); 
-        showToast('⚠️ ' + (message || 'No se pudo arrancar el motor'), 'error'); 
-      }
-    } else if (ack === 'STOP_ENGINE') {
-      if (ok) { 
-        playEngineStopSound(); 
-        showToast('🛑 Motor apagado remotamente', 'success'); 
-      } else { 
-        playErrorSound(); 
-        showToast('⚠️ ' + (message || 'No se pudo apagar el motor'), 'error'); 
-      }
-    } else if (ack === 'ALARM_TRIGGERED') {
-      playTone([880, 660, 880, 660], 160, 0.1);
-      vibrate([120, 60, 120, 60, 200]);
-    } else if (!ok && message) {
-      playErrorSound();
-      showToast('⚠️ ' + message, 'error');
-    } else if (ok && message) {
-      showToast(message, 'success');
-    }
-  }
-
-  function startProximityMonitoring() {
-    if (proximityCheckInterval) {
-      clearInterval(proximityCheckInterval);
-    }
-    
-    console.log('📶 Iniciando monitoreo de proximidad');
-    
-    proximityCheckInterval = setInterval(async () => {
-      if (!bleDevice || !bleDevice.gatt || !bleDevice.gatt.connected) {
-        clearInterval(proximityCheckInterval);
-        proximityCheckInterval = null;
-        return;
-      }
-      
-      try {
-        const simulatedRssi = -50 - Math.floor(Math.random() * 40);
-        
-        if (el.proximityRssiLabel) {
-          el.proximityRssiLabel.textContent = `${simulatedRssi} dBm`;
-        }
-        
-        const sensitivity = parseInt(safeLocalStorageGet(LS.proximitySensitivity, '3'));
-        const thresholds = [-50, -60, -70, -80, -90];
-        const threshold = thresholds[sensitivity - 1];
-        
-        const isNear = simulatedRssi >= threshold;
-        
-        if (!isNear && lastState && !lastState.armed) {
-          console.log(`📶 Auto-armando por distancia (${simulatedRssi} dBm < ${threshold} dBm)`);
-          await sendCmd('ARM', '🛡️ Auto-armado por distancia');
-        } else if (isNear && lastState && lastState.armed && !lastState.alarmTriggered) {
-          console.log(`📶 Auto-desarmando por proximidad (${simulatedRssi} dBm >= ${threshold} dBm)`);
-          await sendCmd('DISARM', '🔓 Auto-desarmado por proximidad');
-        }
-      } catch (e) {
-        console.warn('Error en monitoreo de proximidad:', e);
-      }
-    }, 5000);
-  }
-
-  // =========================================================================
-  // ENVÍO DE COMANDOS
-  // =========================================================================
-
-  async function sendCmd(cmd, toastMsg) {
-    if (!cmdChar) {
-      showToast('Conecta tu vehículo por Bluetooth primero', 'warn');
-      connectBLE();
-      return false;
-    }
-    
-    try {
-      const payload = new TextEncoder().encode(cmd);
-      
-      if (cmdChar.writeValueWithoutResponse) {
-        await cmdChar.writeValueWithoutResponse(payload);
-      } else if (cmdChar.writeValue) {
-        await cmdChar.writeValue(payload);
-      } else {
-        throw new Error('Característica no soporta escritura');
-      }
-      
-      if (toastMsg) showToast(toastMsg, 'success');
-      console.log(`📤 Comando enviado: ${cmd}`);
-      return true;
-    } catch (err) {
-      console.error('Error enviando comando', cmd, err);
-      showToast('No se pudo enviar el comando. Verifica la conexión.', 'error');
-      playErrorSound();
-      return false;
-    }
-  }
-
-  // =========================================================================
-  // NAVEGACIÓN ENTRE PANTALLAS
-  // =========================================================================
-
-  function navigateTo(screenName) {
-    document.querySelectorAll('.screen').forEach((s) => {
-      s.classList.toggle('active', s.dataset.screen === screenName);
-    });
-    document.querySelectorAll('.tab').forEach((t) => {
-      t.classList.toggle('active', t.dataset.screen === screenName);
-    });
-    
-    if (screenName === 'mapa' && map) {
-      setTimeout(() => { 
-        map.invalidateSize();
-        if (lastState && lastState.gpsFix) {
-          map.panTo([lastState.lat, lastState.lng]);
-        }
-      }, 100);
-    }
-  }
-
-  // =========================================================================
-  // ARMAR / DESARMAR
-  // =========================================================================
-
-  function toggleArm() {
-    if (lastState?.alarmTriggered) {
-      stopAlarmFromUI();
-      return;
-    }
-    const willArm = !(lastState?.armed);
-    sendCmd(willArm ? 'ARM' : 'DISARM', willArm ? '🛡️ Armando vehículo…' : '🔓 Desarmando vehículo…');
-  }
-
-  function stopAlarmFromUI() {
-    sendCmd('STOP_ALARM', '🔕 Deteniendo alarma…');
-  }
-
-  // =========================================================================
-  // SEGUROS
-  // =========================================================================
-
-  function setLock(shouldLock) {
-    sendCmd(shouldLock ? 'LOCK' : 'UNLOCK', shouldLock ? '🔒 Cerrando seguros…' : '🔓 Abriendo seguros…');
-  }
-
-  // =========================================================================
-  // VIDRIOS
-  // =========================================================================
-
-  async function moveWindowsSimple(direction) {
-    const suffix = direction === 'up' ? '_UP' : '_DOWN';
-    await sendCmd('WIN_L' + suffix, null);
-    await sendCmd('WIN_R' + suffix, direction === 'up' ? '🪟 Subiendo vidrios…' : '🪟 Bajando vidrios…');
-  }
-
-  // =========================================================================
-  // LUCES
-  // =========================================================================
-
-  function toggleLight(id) {
-    const isOn = !!(lastState?.lights && lastState.lights[id]);
-    const label = LIGHT_LABELS[id] || id;
-    sendCmd(`LIGHT:${id}:${isOn ? 'OFF' : 'ON'}`, `💡 ${label} ${isOn ? 'apagándose' : 'encendiéndose'}…`);
-  }
-
-  // =========================================================================
-  // ENCONTRAR AUTO
-  // =========================================================================
-
-  function findCar() {
-    sendCmd('HORN', '📍 Haciendo sonar la sirena para ubicar el vehículo');
-    playTone([500, 900, 500, 900], 150, 0.08);
-  }
-
-  // =========================================================================
-  // MALETERO
-  // =========================================================================
-
-  (function setupTrunkHold() {
-    if (!el.trunkBtn) return;
-    let holdTimer = null;
-    let progressStart = 0;
-
-    const HOLD_MS = 3000;
-
-    function start() {
-      progressStart = Date.now();
-      el.trunkBtnLabel.textContent = 'Mantén presionado…';
-      holdTimer = setTimeout(() => {
-        sendCmd('TRUNK', '🧳 Abriendo maletero…');
-        vibrate([50, 30, 50]);
-        el.trunkBtnLabel.textContent = '✅ Maletero abierto';
-        setTimeout(() => { el.trunkBtnLabel.textContent = 'Mantén presionado 3s'; }, 1800);
-      }, HOLD_MS);
-    }
-
-    function cancel() {
-      clearTimeout(holdTimer);
-      if (Date.now() - progressStart < HOLD_MS) {
-        el.trunkBtnLabel.textContent = 'Mantén presionado 3s';
-      }
-    }
-
-    el.trunkBtn.addEventListener('pointerdown', start);
-    el.trunkBtn.addEventListener('pointerup', cancel);
-    el.trunkBtn.addEventListener('pointerleave', cancel);
-    el.trunkBtn.addEventListener('pointercancel', cancel);
-  })();
-
-  // =========================================================================
-  // CHECKLIST DE ARRANQUE / APAGADO REMOTO
-  // =========================================================================
-
-  const START_CHECKS = [
-    { key: 'armed',    label: 'Alarma armada',            test: (s) => !!s.armed },
-    { key: 'parked',   label: 'Freno de mano activado',   test: (s) => !!s.parked },
-    { key: 'locked',   label: 'Seguros cerrados',         test: (s) => !!s.locked },
-    { key: 'door',     label: 'Puertas cerradas',         test: (s) => !s.doorOpen },
-    { key: 'engineOff',label: 'Motor apagado',            test: (s) => !s.engine }
-  ];
-
-  const STOP_CHECKS = [
-    { key: 'remoteStart', label: 'Motor arrancado desde la app', test: (s) => !!s.remoteStart },
-    { key: 'engineOn',    label: 'Motor encendido',              test: (s) => !!s.engine },
-    { key: 'parked',      label: 'Freno de mano activado',       test: (s) => !!s.parked },
-    { key: 'locked',      label: 'Seguros cerrados',             test: (s) => !!s.locked }
-  ];
-
-  function buildChecklist(mode) {
-    const state = lastState || {};
-    const checks = mode === 'start' ? START_CHECKS : STOP_CHECKS;
-    const allOk = checks.every((c) => c.test(state));
-
-    el.checklistTitle.textContent = mode === 'start'
-      ? 'Verificación antes de arrancar'
-      : 'Verificación antes de apagar';
-    el.checklistSub.textContent = allOk
-      ? 'Todo listo. Puedes continuar.'
-      : 'Se deben cumplir todas las condiciones para continuar';
-
-    el.checklistIcon.classList.toggle('blocked', !allOk);
-    el.checklistIcon.innerHTML = mode === 'start' ? ICONS.engine : ICONS.alarm;
-
-    el.checklistItems.innerHTML = checks.map((c) => {
-      const ok = c.test(state);
-      return `
-        <div class="checklist-item ${ok ? 'ok' : 'fail'}" role="listitem">
-          <span class="checklist-item-icon">
-            ${ok
-              ? '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"/></svg>'
-              : '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6L6 18M6 6l12 12"/></svg>'}
-          </span>
-          <span class="checklist-item-text">${c.label}</span>
-        </div>`;
-    }).join('');
-
-    el.checklistConfirmBtn.disabled = !allOk || !cmdChar;
-    el.checklistConfirmBtn.textContent = mode === 'start' ? 'Confirmar arranque' : 'Confirmar apagado';
-  }
-
-  function openStartChecklist() {
-    if (!cmdChar) {
-      showToast('Conecta tu vehículo por Bluetooth primero', 'warn');
-      connectBLE();
-      return;
-    }
-    checklistMode = 'start';
-    buildChecklist('start');
-    el.checklistOverlay.hidden = false;
-  }
-
-  function confirmStop() {
-    if (!cmdChar) {
-      showToast('Conecta tu vehículo por Bluetooth primero', 'warn');
-      connectBLE();
-      return;
-    }
-    checklistMode = 'stop';
-    buildChecklist('stop');
-    el.checklistOverlay.hidden = false;
-  }
-
-  function closeChecklistOverlay() {
-    el.checklistOverlay.hidden = true;
-    checklistMode = null;
-  }
-
-  function confirmChecklistAction() {
-    if (el.checklistConfirmBtn.disabled) return;
-    
-    if (checklistMode === 'start') {
-      sendCmd('START_ENGINE', '🚀 Enviando arranque remoto…');
-    } else if (checklistMode === 'stop') {
-      sendCmd('STOP_ENGINE', '🛑 Enviando apagado remoto…');
-    }
-    closeChecklistOverlay();
-  }
-
-  // =========================================================================
-  // AJUSTES — VEHÍCULO
-  // =========================================================================
-
-  function editVehicle() {
-    const current = safeLocalStorageGet(LS.vehicleName, 'Mi vehículo');
-    const name = prompt('Nombre del vehículo:', current);
-    if (name && name.trim()) {
-      safeLocalStorageSet(LS.vehicleName, name.trim());
-      applyVehicleName();
-      showToast('Nombre actualizado', 'success');
-    }
-  }
-
-  function editPlate() {
-    const current = safeLocalStorageGet(LS.vehiclePlate, 'ABC-1234');
-    const plate = prompt('Placa del vehículo:', current);
-    if (plate && plate.trim()) {
-      safeLocalStorageSet(LS.vehiclePlate, plate.trim().toUpperCase());
-      applyVehicleName();
-      showToast('Placa actualizada', 'success');
-    }
-  }
-
-  function applyVehicleName() {
-    const name = safeLocalStorageGet(LS.vehicleName, 'Mi vehículo');
-    const plate = safeLocalStorageGet(LS.vehiclePlate, 'ABC-1234');
-    if (el.vehicleNameDisplay) el.vehicleNameDisplay.textContent = name;
-    if (el.vehicleNameSetting) el.vehicleNameSetting.textContent = name;
-    if (el.vehiclePlate) el.vehiclePlate.textContent = plate;
-  }
-
-  // =========================================================================
-  // AJUSTES — SEGURIDAD DE ACCESO
-  // =========================================================================
-
-  function toggleBiometric(node) {
-    const enabling = !node.classList.contains('on');
-    
-    if (enabling && !window.PublicKeyCredential) {
-      showToast('Tu navegador no soporta desbloqueo biométrico', 'error');
-      return;
-    }
-    
-    node.classList.toggle('on', enabling);
-    node.setAttribute('aria-checked', enabling ? 'true' : 'false');
-    safeLocalStorageSet(LS.biometric, enabling ? 'on' : 'off');
-    el.bioStatusSub.textContent = enabling ? 'Activado' : 'Usa el lector de tu teléfono';
-    showToast(enabling ? '👆 Desbloqueo biométrico activado' : 'Desbloqueo biométrico desactivado', 'success');
-  }
-
-  function registerBiometric() {
-    safeLocalStorageSet(LS.biometric, 'on');
-    if (el.switchBiometric) {
-      el.switchBiometric.classList.add('on');
-      el.switchBiometric.setAttribute('aria-checked', 'true');
-    }
-    closeAllAppOverlays();
-    showToast('👆 Huella / rostro configurado', 'success');
-  }
-
-  function tryBiometricUnlock() {
-    closeAllAppOverlays();
-    showToast('Desbloqueado', 'success');
-  }
-
-  function closeAllAppOverlays() {
-    el.configOverlay.hidden = true;
-    el.lockOverlay.hidden = true;
-    el.pinOverlay.hidden = true;
-  }
-
-  // ---- PIN ----
-  function openPinSetup() {
-    pinContext = 'setup';
-    pinSetupFirstEntry = null;
-    pinBuffer = '';
-    el.pinOverlayTitle.textContent = 'Crea un PIN';
-    el.pinOverlaySub.textContent = 'Usa 4 dígitos que puedas recordar';
-    renderPinDots();
-    el.pinError.textContent = '';
-    el.pinOverlay.hidden = false;
-  }
-
-  function openPinEntry() {
-    pinContext = 'entry';
-    pinBuffer = '';
-    el.pinOverlayTitle.textContent = 'Ingresa tu PIN';
-    el.pinOverlaySub.textContent = 'Por seguridad, confirma con tu PIN';
-    renderPinDots();
-    el.pinError.textContent = '';
-    el.lockOverlay.hidden = true;
-    el.pinOverlay.hidden = false;
-  }
-
-  function closePinOverlay() {
-    el.pinOverlay.hidden = true;
-    pinBuffer = '';
-    pinContext = null;
-  }
-
-  function renderPinDots() {
-    const dots = el.pinDots.querySelectorAll('span');
-    dots.forEach((dot, i) => {
-      dot.classList.toggle('filled', i < pinBuffer.length);
-      dot.classList.remove('error');
-    });
-  }
-
-  async function hashPin(pin) {
-    const enc = new TextEncoder().encode('centinela-salt-' + pin);
-    const buf = await crypto.subtle.digest('SHA-256', enc);
-    return Array.from(new Uint8Array(buf)).map((b) => b.toString(16).padStart(2, '0')).join('');
-  }
-
-  function pinPress(digit) {
-    if (pinBuffer.length >= 4) return;
-    pinBuffer += String(digit);
-    renderPinDots();
-    
-    playTone([600], 50, 0.03);
-    
-    if (pinBuffer.length === 4) setTimeout(() => handlePinComplete(), 120);
-  }
-
-  function pinBackspace() {
-    pinBuffer = pinBuffer.slice(0, -1);
-    renderPinDots();
-    el.pinError.textContent = '';
-    playTone([400], 50, 0.03);
-  }
-
-  async function handlePinComplete() {
-    if (pinContext === 'setup') {
-      if (!pinSetupFirstEntry) {
-        pinSetupFirstEntry = pinBuffer;
-        pinBuffer = '';
-        el.pinOverlaySub.textContent = 'Confirma tu PIN';
-        renderPinDots();
-        return;
-      }
-      
-      if (pinBuffer === pinSetupFirstEntry) {
-        const hash = await hashPin(pinBuffer);
-        safeLocalStorageSet(LS.pinHash, hash);
-        el.pinStatusSub.textContent = 'Configurado';
-        closePinOverlay();
-        closeAllAppOverlays();
-        showToast('🔢 PIN configurado correctamente', 'success');
-        playConfirmSound();
-      } else {
-        el.pinError.textContent = 'Los PIN no coinciden, intenta de nuevo';
-        el.pinDots.querySelectorAll('span').forEach((d) => d.classList.add('error'));
-        playErrorSound();
-        pinSetupFirstEntry = null;
-        pinBuffer = '';
-        setTimeout(renderPinDots, 400);
-      }
-    } else if (pinContext === 'entry') {
-      const hash = await hashPin(pinBuffer);
-      const saved = safeLocalStorageGet(LS.pinHash);
-      
-      if (saved && hash === saved) {
-        closePinOverlay();
-        closeAllAppOverlays();
-        showToast('Desbloqueado', 'success');
-        playConfirmSound();
-      } else {
-        el.pinError.textContent = 'PIN incorrecto';
-        el.pinDots.querySelectorAll('span').forEach((d) => d.classList.add('error'));
-        pinBuffer = '';
-        vibrate([80, 40, 80]);
-        playErrorSound();
-        setTimeout(renderPinDots, 400);
-      }
-    }
-  }
-
-  // =========================================================================
-  // AJUSTES — PROXIMIDAD, SONIDO, MODOS, SENSORES
-  // =========================================================================
-
-  function toggleProximity(node) {
-    const on = node.classList.toggle('on');
-    node.setAttribute('aria-checked', on ? 'true' : 'false');
-    safeLocalStorageSet(LS.proximity, on ? 'on' : 'off');
-    el.proximityLiveCard.style.display = on ? 'block' : 'none';
-    
-    if (on && cmdChar) {
-      startProximityMonitoring();
-      showToast('📶 Armado/desarmado automático activado', 'success');
-    } else {
-      if (proximityCheckInterval) {
-        clearInterval(proximityCheckInterval);
-        proximityCheckInterval = null;
-      }
-      showToast('Armado/desarmado automático desactivado', 'success');
-    }
-  }
-
-  function updateProximityLabel(value) {
-    const idx = Math.max(0, Math.min(PROXIMITY_LABELS.length - 1, value - 1));
-    el.proximityValLabel.textContent = PROXIMITY_LABELS[idx];
-    safeLocalStorageSet(LS.proximitySensitivity, value);
-  }
-
-  function toggleSound(node) {
-    const on = node.classList.toggle('on');
-    node.setAttribute('aria-checked', on ? 'true' : 'false');
-    safeLocalStorageSet(LS.soundOn, on ? 'on' : 'off');
-    if (on) playConfirmSound();
-  }
-
-  function toggleMode(mode, node) {
-    const on = node.classList.toggle('on');
-    node.setAttribute('aria-checked', on ? 'true' : 'false');
-    
-    let modes = {};
-    try {
-      modes = JSON.parse(safeLocalStorageGet(LS.modes, '{}'));
-    } catch (e) {
-      console.warn('Error parseando modos:', e);
-    }
-    
-    modes[mode] = on;
-    safeLocalStorageSet(LS.modes, JSON.stringify(modes));
-    
-    const labels = { valet: 'Modo valet', taller: 'Modo taller', ninos: 'Modo niños' };
-    showToast(`${labels[mode] || mode} ${on ? 'activado' : 'desactivado'}`, 'success');
-  }
-
-  function toggleSensor(sensor, node) {
-    const on = node.classList.toggle('on');
-    node.setAttribute('aria-checked', on ? 'true' : 'false');
-    
-    let sensors = {};
-    try {
-      sensors = JSON.parse(safeLocalStorageGet(LS.sensors, '{}'));
-    } catch (e) {
-      console.warn('Error parseando sensores:', e);
-    }
-    
-    sensors[sensor] = on;
-    safeLocalStorageSet(LS.sensors, JSON.stringify(sensors));
-    showToast(`Sensor ${on ? 'activado' : 'desactivado'}`, 'success');
-  }
-
-  // =========================================================================
-  // AJUSTES — CUENTA / TELÉFONOS
-  // =========================================================================
-
-  function openEmergencyCode() {
-    showToast('🔑 Código de emergencia: consulta el manual impreso de tu vehículo', 'info');
-  }
-
-  function pairNewPhone() {
-    sendCmd('PAIR_MODE', '📲 Modo de vinculación abierto por 60 segundos');
-  }
-
-  function forgetPhonesSecure() {
-    if (!confirm('¿Olvidar todos los teléfonos vinculados? Deberás volver a vincular tu teléfono.')) return;
-    sendCmd('FORGET_PHONES', '🧹 Teléfonos olvidados. Vinculación abierta.');
-  }
-
-  // =========================================================================
-  // INSTALACIÓN PWA
-  // =========================================================================
-
-  window.addEventListener('beforeinstallprompt', (e) => {
-    e.preventDefault();
-    deferredInstallPrompt = e;
-    if (el.installBtn) el.installBtn.style.display = 'flex';
-    console.log('📲 Evento de instalación PWA capturado');
-  });
-
-  function installApp() {
-    if (!deferredInstallPrompt) {
-      showToast('La app ya está instalada o no se puede instalar en este momento', 'info');
-      return;
-    }
-    
-    deferredInstallPrompt.prompt();
-    deferredInstallPrompt.userChoice.then((choiceResult) => {
-      if (choiceResult.outcome === 'accepted') {
-        console.log('✅ Usuario aceptó instalar la PWA');
-        showToast('✅ Aplicación instalada correctamente', 'success');
-      } else {
-        console.log('❌ Usuario rechazó instalar la PWA');
-      }
-      deferredInstallPrompt = null;
-      if (el.installBtn) el.installBtn.style.display = 'none';
-    });
-  }
-
-  window.addEventListener('appinstalled', () => {
-    console.log('✅ PWA instalada exitosamente');
-    showToast('✅ Centinela instalado en tu dispositivo', 'success');
-    if (el.installBtn) el.installBtn.style.display = 'none';
-  });
-
-  // =========================================================================
-  // INICIALIZACIÓN
-  // =========================================================================
-
-  function restoreSettingsUI() {
-    applyVehicleName();
-
-    if (safeLocalStorageGet(LS.biometric) === 'on' && el.switchBiometric) {
-      el.switchBiometric.classList.add('on');
-      el.switchBiometric.setAttribute('aria-checked', 'true');
-      el.bioStatusSub.textContent = 'Activado';
-    }
-    
-    if (safeLocalStorageGet(LS.pinHash) && el.pinStatusSub) {
-      el.pinStatusSub.textContent = 'Configurado';
-    }
-    
-    if (safeLocalStorageGet(LS.proximity) === 'on' && el.switchProximity) {
-      el.switchProximity.classList.add('on');
-      el.switchProximity.setAttribute('aria-checked', 'true');
-      el.proximityLiveCard.style.display = 'block';
-    }
-    
-    const sens = safeLocalStorageGet(LS.proximitySensitivity, '3');
-    if (el.proximitySlider) {
-      el.proximitySlider.value = sens;
-      updateProximityLabel(sens);
-    }
-    
-    if (safeLocalStorageGet(LS.soundOn, 'on') === 'off' && el.switchSound) {
-      el.switchSound.classList.remove('on');
-      el.switchSound.setAttribute('aria-checked', 'false');
-    }
-    
-    let modes = {};
-    try {
-      modes = JSON.parse(safeLocalStorageGet(LS.modes, '{}'));
-    } catch (e) {
-      console.warn('Error parseando modos:', e);
-    }
-    
-    if (modes.valet && el.switchValet) {
-      el.switchValet.classList.add('on');
-      el.switchValet.setAttribute('aria-checked', 'true');
-    }
-    if (modes.taller && el.switchTaller) {
-      el.switchTaller.classList.add('on');
-      el.switchTaller.setAttribute('aria-checked', 'true');
-    }
-    if (modes.ninos === false && el.switchNinos) {
-      el.switchNinos.classList.remove('on');
-      el.switchNinos.setAttribute('aria-checked', 'false');
-    } else if (el.switchNinos) {
-      el.switchNinos.classList.add('on');
-      el.switchNinos.setAttribute('aria-checked', 'true');
-    }
-
-    let sensors = {};
-    try {
-      sensors = JSON.parse(safeLocalStorageGet(LS.sensors, '{}'));
-    } catch (e) {
-      console.warn('Error parseando sensores:', e);
-    }
-    
-    if (sensors.impacto === false && el.switchImpacto) {
-      el.switchImpacto.classList.remove('on');
-      el.switchImpacto.setAttribute('aria-checked', 'false');
-    } else if (el.switchImpacto) {
-      el.switchImpacto.classList.add('on');
-      el.switchImpacto.setAttribute('aria-checked', 'true');
-    }
-    
-    if (sensors.inclinacion === false && el.switchInclinacion) {
-      el.switchInclinacion.classList.remove('on');
-      el.switchInclinacion.setAttribute('aria-checked', 'false');
-    } else if (el.switchInclinacion) {
-      el.switchInclinacion.classList.add('on');
-      el.switchInclinacion.setAttribute('aria-checked', 'true');
-    }
-  }
-
-  function checkInitialSecuritySetup() {
-    const hasBio = safeLocalStorageGet(LS.biometric) === 'on';
-    const hasPin = !!safeLocalStorageGet(LS.pinHash);
-    
-    if (!hasBio && !hasPin) {
-      console.log('⚠️ No hay método de seguridad configurado');
-      el.configOverlay.hidden = false;
-    }
-  }
-
-  function checkBluetoothSupport() {
+        stop: [
+            { id: '1', label: 'Vehículo completamente detenido', checked: false },
+            { id: '2', label: 'Freno de mano activado', checked: false },
+            { id: '3', label: 'Confirmar apagado', checked: false }
+        ]
+    },
+    pendingAction: null
+};
+
+// ==========================================
+// INICIALIZACIÓN
+// ==========================================
+document.addEventListener('DOMContentLoaded', () => {
+    checkBLEAvailability();
+    loadSettings();
+    updateUI();
+    setupEventListeners();
+    startStatusPolling();
+});
+
+// ==========================================
+// FUNCIONES BLUETOOTH
+// ==========================================
+
+function checkBLEAvailability() {
     if (!navigator.bluetooth) {
-      console.error('❌ Web Bluetooth API no soportada');
-      if (el.bleWarning) {
-        el.bleWarning.hidden = false;
-      }
-      showToast('⚠️ Tu navegador no soporta Bluetooth Web', 'error');
-      return false;
+        document.getElementById('bleWarning').hidden = false;
+        showToast('❌ Web Bluetooth no está disponible en este navegador', 'error');
+        return false;
     }
-    console.log('✅ Web Bluetooth API soportada');
     return true;
-  }
+}
 
-  function restoreSavedEvents() {
+async function connectBLE() {
+    if (!checkBLEAvailability()) return;
+
     try {
-      const savedEvents = JSON.parse(safeLocalStorageGet(LS.events, '[]'));
-      
-      if (savedEvents.length > 0 && el.eventFeedEmpty && el.eventFeedEmpty.parentNode) {
-        el.eventFeedEmpty.remove();
-      }
-      
-      savedEvents.slice(0, 10).forEach((event) => {
-        const item = document.createElement('div');
-        item.className = 'event';
+        showToast('🔍 Buscando CENTINELA_BT...', 'info');
         
-        const icon = ICONS[event.iconType] || ICONS.info;
-        const date = new Date(event.timestamp);
-        
-        item.innerHTML = `
-          <div class="event-icon ${event.iconType || 'ok'}">${icon}</div>
-          <div class="event-body">
-            <div class="event-title">${event.title}</div>
-            <div class="event-time">${formatTime(date)}</div>
-          </div>`;
-        
-        el.eventFeed.appendChild(item);
-      });
-      
-      console.log(`✅ Restaurados ${Math.min(savedEvents.length, 10)} eventos guardados`);
-    } catch (e) {
-      console.warn('Error restaurando eventos:', e);
-    }
-  }
-
-  document.addEventListener('visibilitychange', () => {
-    if (document.hidden) {
-      console.log('📱 App en segundo plano');
-      if (proximityCheckInterval) {
-        clearInterval(proximityCheckInterval);
-        proximityCheckInterval = null;
-      }
-    } else {
-      console.log('📱 App en primer plano');
-      if (safeLocalStorageGet(LS.proximity) === 'on' && cmdChar) {
-        startProximityMonitoring();
-      }
-    }
-  });
-
-  window.addEventListener('online', () => {
-    console.log('🌐 Conexión a Internet restaurada');
-    showToast('🌐 Conexión restaurada', 'success');
-  });
-
-  window.addEventListener('offline', () => {
-    console.log('📡 Sin conexión a Internet');
-    showToast('📡 Sin conexión a Internet (Bluetooth funciona sin conexión)', 'warn');
-  });
-
-  document.addEventListener('gesturestart', (e) => {
-    e.preventDefault();
-  });
-
-  window.addEventListener('error', (event) => {
-    console.error('❌ Error global capturado:', event.error);
-    if (event.filename && !event.filename.includes(window.location.hostname)) {
-      return;
-    }
-    showToast('Ha ocurrido un error inesperado', 'error');
-  });
-
-  window.addEventListener('unhandledrejection', (event) => {
-    console.error('❌ Promise rechazada sin manejar:', event.reason);
-    if (event.reason && event.reason.name === 'NotFoundError') {
-      return;
-    }
-    showToast('Error de conexión. Intenta de nuevo.', 'error');
-  });
-
-  // =========================================================================
-  // REGISTRO DE FUNCIONES EN WINDOW (para HTML onclick)
-  // =========================================================================
-
-  window.connectBLE = connectBLE;
-  window.navigateTo = navigateTo;
-  window.toggleArm = toggleArm;
-  window.stopAlarmFromUI = stopAlarmFromUI;
-  window.setLock = setLock;
-  window.moveWindowsSimple = moveWindowsSimple;
-  window.toggleLight = toggleLight;
-  window.findCar = findCar;
-  window.openStartChecklist = openStartChecklist;
-  window.confirmStop = confirmStop;
-  window.closeChecklistOverlay = closeChecklistOverlay;
-  window.confirmChecklistAction = confirmChecklistAction;
-  window.editVehicle = editVehicle;
-  window.editPlate = editPlate;
-  window.toggleBiometric = toggleBiometric;
-  window.registerBiometric = registerBiometric;
-  window.tryBiometricUnlock = tryBiometricUnlock;
-  window.openPinSetup = openPinSetup;
-  window.openPinEntry = openPinEntry;
-  window.closePinOverlay = closePinOverlay;
-  window.pinPress = pinPress;
-  window.pinBackspace = pinBackspace;
-  window.toggleProximity = toggleProximity;
-  window.updateProximityLabel = updateProximityLabel;
-  window.toggleSound = toggleSound;
-  window.toggleMode = toggleMode;
-  window.toggleSensor = toggleSensor;
-  window.openEmergencyCode = openEmergencyCode;
-  window.pairNewPhone = pairNewPhone;
-  window.forgetPhonesSecure = forgetPhonesSecure;
-  window.installApp = installApp;
-  window.sendCmd = sendCmd;
-  window.showToast = showToast;
-
-  // =========================================================================
-  // INICIALIZACIÓN PRINCIPAL
-  // =========================================================================
-
-  document.addEventListener('DOMContentLoaded', () => {
-    console.log('🚗 CENTINELA v5.0 - Inicializando...');
-    
-    checkBluetoothSupport();
-    restoreSettingsUI();
-    restoreSavedEvents();
-    checkInitialSecuritySetup();
-    updateEngineButtonsState({});
-
-    if ('serviceWorker' in navigator) {
-      navigator.serviceWorker.register('./sw.js')
-        .then((registration) => {
-          console.log('✅ Service Worker registrado:', registration.scope);
-          
-          registration.addEventListener('updatefound', () => {
-            const newWorker = registration.installing;
-            console.log('🔄 Nueva versión del Service Worker detectada');
-            
-            newWorker.addEventListener('statechange', () => {
-              if (newWorker.state === 'installed' && navigator.serviceWorker.controller) {
-                showToast('Nueva versión disponible. Recarga la página.', 'info');
-              }
-            });
-          });
-        })
-        .catch((err) => {
-          console.warn('⚠️ Service Worker no disponible:', err);
+        const device = await navigator.bluetooth.requestDevice({
+            filters: [{ name: CONFIG.DEVICE_NAME }],
+            optionalServices: [CONFIG.SERVICE_UUID]
         });
+
+        const server = await device.gatt.connect();
+        const service = await server.getPrimaryService(CONFIG.SERVICE_UUID);
+        const characteristic = await service.getCharacteristic(CONFIG.CHARACTERISTIC_UUID);
+
+        state.device = device;
+        state.characteristic = characteristic;
+        state.isConnected = true;
+
+        // Configurar notificaciones
+        await characteristic.startNotifications();
+        characteristic.addEventListener('characteristicvaluechanged', handleBLEMessage);
+
+        // Actualizar UI
+        updateConnectionUI(true);
+        
+        // Enviar comando de estado
+        sendCommand('STATUS');
+        
+        showToast('✅ Conectado a CENTINELA_BT', 'success');
+        
+        // Registrar evento
+        addEvent('🔗 Conexión Bluetooth establecida', 'ok');
+
+    } catch (error) {
+        console.error('Error BLE:', error);
+        state.isConnected = false;
+        updateConnectionUI(false);
+        showToast('❌ Error de conexión: ' + error.message, 'error');
     }
+}
 
-    const unlockAudio = () => {
-      ensureAudioCtx();
-      document.removeEventListener('touchstart', unlockAudio);
-      document.removeEventListener('click', unlockAudio);
-    };
-    document.addEventListener('touchstart', unlockAudio, { once: true });
-    document.addEventListener('click', unlockAudio, { once: true });
-
-    const splash = document.getElementById('splash');
-    if (splash) {
-      setTimeout(() => {
-        splash.style.opacity = '0';
-        setTimeout(() => splash.remove(), 300);
-      }, 800);
+function disconnectBLE() {
+    if (state.device && state.device.gatt) {
+        state.device.gatt.disconnect();
     }
+    state.isConnected = false;
+    state.device = null;
+    state.characteristic = null;
+    updateConnectionUI(false);
+    showToast('🔌 Desconectado', 'info');
+}
 
-    console.log('✅ Centinela v5.0 inicializado correctamente');
+function updateConnectionUI(connected) {
+    const dot = document.getElementById('statusDot');
+    const text = document.getElementById('statusPillText');
+    const keyLinkTitle = document.getElementById('keyLinkTitle');
+    const keyLinkSub = document.getElementById('keyLinkSub');
+    const beam = document.getElementById('beam');
+
+    if (connected) {
+        dot.className = 'dot connected';
+        text.textContent = 'Conectado';
+        keyLinkTitle.textContent = '✅ Conectado a CENTINELA_BT';
+        keyLinkSub.textContent = 'Sistema listo';
+        beam.style.opacity = '1';
+    } else {
+        dot.className = 'dot';
+        text.textContent = 'Sin conexión';
+        keyLinkTitle.textContent = '📱 Toca para conectar por Bluetooth';
+        keyLinkSub.textContent = 'Sin conexión';
+        beam.style.opacity = '0.35';
+    }
+}
+
+function startStatusPolling() {
+    setInterval(() => {
+        if (state.isConnected) {
+            sendCommand('STATUS');
+        }
+    }, CONFIG.STATUS_INTERVAL);
+}
+
+// ==========================================
+// MANEJO DE MENSAJES BLE
+// ==========================================
+
+function handleBLEMessage(event) {
+    const value = event.target.value;
+    const message = new TextDecoder().decode(value);
+    console.log('📨 Recibido:', message);
     
-    window.dispatchEvent(new CustomEvent('centinela:ready', {
-      detail: {
-        version: '5.0',
-        timestamp: new Date().toISOString()
-      }
-    }));
-  });
+    processBLEMessage(message);
+}
 
-  // =========================================================================
-  // ATAJOS DE TECLADO
-  // =========================================================================
+function processBLEMessage(message) {
+    // Formato: ESTADO:OFF|VOLT:12.0|TEMP:25.0|PUERTAS:0|BT:1|MAC:XX:XX:XX:XX:XX:XX
+    
+    if (message.startsWith('ESTADO:')) {
+        const parts = message.split('|');
+        const data = {};
+        
+        parts.forEach(part => {
+            const [key, value] = part.split(':');
+            data[key] = value;
+        });
+        
+        // Actualizar estado
+        if (data.ESTADO) {
+            updateVehicleState(data.ESTADO);
+        }
+        
+        if (data.VOLT) {
+            state.batteryVoltage = parseFloat(data.VOLT);
+            document.getElementById('statBattery').textContent = data.VOLT + 'V';
+        }
+        
+        if (data.TEMP) {
+            state.motorTemp = parseFloat(data.TEMP);
+            document.getElementById('statMotorTemp').textContent = data.TEMP + '°C';
+        }
+        
+        if (data.PUERTAS) {
+            state.doorStatus = data.PUERTAS === '1';
+            document.getElementById('doorStatus').textContent = 
+                state.doorStatus ? 'abiertas' : 'cerradas';
+        }
+        
+        if (data.MAC) {
+            state.macMaster = data.MAC;
+        }
+        
+        updateUI();
+    }
+}
 
-  if (window.innerWidth > 768) {
-    document.addEventListener('keydown', (e) => {
-      if (e.ctrlKey && e.key === 'b') {
-        e.preventDefault();
+function updateVehicleState(estado) {
+    switch(estado) {
+        case 'OFF':
+            state.isEngineOn = false;
+            state.isArmed = false;
+            document.getElementById('shieldLabel').textContent = 'DESARMADO';
+            document.getElementById('shieldSubState').textContent = 'inactivo';
+            break;
+        case 'PRESENCIA':
+            state.isArmed = false;
+            document.getElementById('shieldLabel').textContent = 'PRESENCIA';
+            document.getElementById('shieldSubState').textContent = 'presencia detectada';
+            break;
+        case 'ACC':
+            state.isArmed = true;
+            document.getElementById('shieldLabel').textContent = 'ACC';
+            document.getElementById('shieldSubState').textContent = 'accesorios';
+            break;
+        case 'IGN':
+            state.isArmed = true;
+            document.getElementById('shieldLabel').textContent = 'ENCENDIDO';
+            document.getElementById('shieldSubState').textContent = 'contacto';
+            break;
+        case 'ARRANCANDO':
+            state.isEngineOn = true;
+            document.getElementById('shieldLabel').textContent = 'ARRANCANDO';
+            document.getElementById('shieldSubState').textContent = 'motor encendiendo';
+            break;
+        case 'ENCENDIDO':
+            state.isEngineOn = true;
+            state.isArmed = true;
+            document.getElementById('shieldLabel').textContent = 'ENCENDIDO';
+            document.getElementById('shieldSubState').textContent = 'motor encendido';
+            break;
+        case 'REMOTE':
+            state.isEngineOn = true;
+            document.getElementById('shieldLabel').textContent = 'REMOTO';
+            document.getElementById('shieldSubState').textContent = 'arranque remoto';
+            break;
+        case 'VALET':
+            document.getElementById('shieldLabel').textContent = 'VALET';
+            document.getElementById('shieldSubState').textContent = 'modo valet';
+            break;
+        case 'TALLER':
+            document.getElementById('shieldLabel').textContent = 'TALLER';
+            document.getElementById('shieldSubState').textContent = 'modo taller';
+            break;
+        case 'ALARMA!':
+            state.isAlarm = true;
+            document.getElementById('shieldLabel').textContent = '🚨 ALARMA';
+            document.getElementById('shieldSubState').textContent = '¡ALARMA DISPARADA!';
+            showAlarmUI(true);
+            break;
+        default:
+            document.getElementById('shieldLabel').textContent = 'DESCONOCIDO';
+            document.getElementById('shieldSubState').textContent = 'estado desconocido';
+    }
+    
+    updateShieldUI();
+}
+
+// ==========================================
+// ENVÍO DE COMANDOS
+// ==========================================
+
+async function sendCommand(command) {
+    if (!state.isConnected || !state.characteristic) {
+        showToast('⚠️ No hay conexión Bluetooth', 'warning');
+        return;
+    }
+
+    try {
+        const encoder = new TextEncoder();
+        const data = encoder.encode(command + '\n');
+        await state.characteristic.writeValue(data);
+        console.log('📤 Enviado:', command);
+    } catch (error) {
+        console.error('Error enviando comando:', error);
+        showToast('❌ Error enviando comando', 'error');
+    }
+}
+
+// ==========================================
+// COMANDOS DE CONTROL
+// ==========================================
+
+function toggleArm() {
+    if (!state.isConnected) {
         connectBLE();
-      }
-      
-      if (e.ctrlKey && e.key === 'a') {
-        e.preventDefault();
-        toggleArm();
-      }
-      
-      if (e.ctrlKey && e.key === 'l') {
-        e.preventDefault();
-        setLock(!lastState?.locked);
-      }
-      
-      if (e.key === 'Escape') {
-        closeAllAppOverlays();
-        closeChecklistOverlay();
-        closePinOverlay();
-      }
+        return;
+    }
+    
+    if (state.isAlarm) {
+        sendCommand('STOP'); // Detener alarma
+        return;
+    }
+    
+    if (state.isEngineOn) {
+        // Si el motor está encendido, apagar
+        confirmStop();
+    } else {
+        // Si está apagado, arrancar
+        openStartChecklist();
+    }
+}
+
+function setLock(locked) {
+    if (!state.isConnected) {
+        showToast('⚠️ Conecta primero al vehículo', 'warning');
+        return;
+    }
+    
+    const command = locked ? 'LOCK' : 'UNLOCK';
+    sendCommand(command);
+    state.lockStatus = locked ? 'locked' : 'unlocked';
+    updateLockUI(locked);
+    
+    addEvent(locked ? '🔒 Puertas bloqueadas' : '🔓 Puertas desbloqueadas', 'ok');
+}
+
+function updateLockUI(locked) {
+    const btnLocked = document.getElementById('lockBtnClosed');
+    const btnOpen = document.getElementById('lockBtnOpen');
+    
+    if (locked) {
+        btnLocked.className = 'segmented-btn active';
+        btnLocked.setAttribute('aria-pressed', 'true');
+        btnOpen.className = 'segmented-btn';
+        btnOpen.setAttribute('aria-pressed', 'false');
+    } else {
+        btnLocked.className = 'segmented-btn';
+        btnLocked.setAttribute('aria-pressed', 'false');
+        btnOpen.className = 'segmented-btn active';
+        btnOpen.setAttribute('aria-pressed', 'true');
+    }
+}
+
+function moveWindowsSimple(direction) {
+    if (!state.isConnected) {
+        showToast('⚠️ Conecta primero al vehículo', 'warning');
+        return;
+    }
+    
+    // El firmware no tiene comando directo para vidrios
+    // Usamos LOCK/UNLOCK como placeholder (necesitarás agregar al firmware)
+    showToast('⚠️ Función en desarrollo - Próxima actualización', 'info');
+    addEvent(`📱 Solicitud: ${direction === 'up' ? 'Subir' : 'Bajar'} vidrios`, 'info');
+}
+
+function toggleLight(lightId) {
+    if (!state.isConnected) {
+        showToast('⚠️ Conecta primero al vehículo', 'warning');
+        return;
+    }
+    
+    // El firmware actual no tiene comandos individuales para luces
+    // Se puede implementar como comando personalizado
+    const btn = document.querySelector(`.light-item[data-id="${lightId}"]`);
+    const isPressed = btn.getAttribute('aria-pressed') === 'true';
+    btn.setAttribute('aria-pressed', !isPressed);
+    btn.classList.toggle('active');
+    
+    // Enviar comando genérico (necesitas implementar en firmware)
+    sendCommand(`LIGHT:${lightId}:${!isPressed ? 'ON' : 'OFF'}`);
+    showToast(`💡 Luz ${lightId} ${!isPressed ? 'encendida' : 'apagada'}`, 'info');
+}
+
+function findCar() {
+    if (!state.isConnected) {
+        connectBLE();
+        return;
+    }
+    
+    // El firmware no tiene comando FIND CAR, usamos HORN como alternativa
+    sendCommand('HORN');
+    showToast('📯 Buscando vehículo...', 'info');
+    addEvent('📯 Búsqueda de vehículo activada', 'info');
+}
+
+// ==========================================
+// ARRANQUE/APAGADO REMOTO CON CHECKLIST
+// ==========================================
+
+function openStartChecklist() {
+    if (!state.isConnected) {
+        connectBLE();
+        return;
+    }
+    
+    if (state.isEngineOn) {
+        showToast('⚠️ El motor ya está encendido', 'warning');
+        return;
+    }
+    
+    state.pendingAction = 'start';
+    showChecklist('start', 'Arranque remoto', 'Verifica las condiciones antes de arrancar');
+}
+
+function confirmStop() {
+    if (!state.isConnected) {
+        connectBLE();
+        return;
+    }
+    
+    if (!state.isEngineOn) {
+        showToast('⚠️ El motor ya está apagado', 'warning');
+        return;
+    }
+    
+    state.pendingAction = 'stop';
+    showChecklist('stop', 'Apagado remoto', 'Confirma que el vehículo está detenido');
+}
+
+function showChecklist(type, title, subtitle) {
+    const overlay = document.getElementById('checklistOverlay');
+    const itemsContainer = document.getElementById('checklistItems');
+    const confirmBtn = document.getElementById('checklistConfirmBtn');
+    
+    document.getElementById('checklistTitle').textContent = title;
+    document.getElementById('checklistSub').textContent = subtitle;
+    
+    // Generar items del checklist
+    const checklist = state.checklists[type];
+    itemsContainer.innerHTML = '';
+    
+    checklist.forEach((item, index) => {
+        const div = document.createElement('div');
+        div.className = 'checklist-item';
+        div.innerHTML = `
+            <input type="checkbox" id="check_${type}_${index}" onchange="updateChecklistStatus()">
+            <label for="check_${type}_${index}">${item.label}</label>
+        `;
+        itemsContainer.appendChild(div);
     });
     
-    console.log('⌨️ Atajos de teclado habilitados (Ctrl+B: BLE, Ctrl+A: ARM, Ctrl+L: LOCK, ESC: Cerrar)');
-  }
+    confirmBtn.disabled = true;
+    overlay.hidden = false;
+}
 
-  // =========================================================================
-  // MODO DEBUG
-  // =========================================================================
+function updateChecklistStatus() {
+    const checkboxes = document.querySelectorAll('#checklistItems input[type="checkbox"]');
+    const allChecked = Array.from(checkboxes).every(cb => cb.checked);
+    document.getElementById('checklistConfirmBtn').disabled = !allChecked;
+}
 
-  if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
-    window.CENTINELA_DEBUG = {
-      getState: () => lastState,
-      sendCommand: (cmd) => sendCmd(cmd, null),
-      simulateState: (state) => renderState(state),
-      clearEvents: () => {
-        safeLocalStorageSet(LS.events, '[]');
-        el.eventFeed.innerHTML = '<div class="event" id="eventFeedEmpty"><div class="event-body"><div class="event-title" style="color:var(--text-dim);">Sin actividad todavía</div></div></div>';
-      },
-      resetSettings: () => {
-        Object.values(LS).forEach((key) => {
-          localStorage.removeItem(key);
-        });
-        location.reload();
-      },
-      version: '5.0',
-      buildDate: '2026-08-14'
-    };
+function confirmChecklistAction() {
+    const action = state.pendingAction;
+    const overlay = document.getElementById('checklistOverlay');
     
-    console.log('🐛 Modo DEBUG activado. Usa window.CENTINELA_DEBUG para acceder a funciones de debugging.');
-    console.log('Ejemplo: CENTINELA_DEBUG.getState()');
-  }
+    if (action === 'start') {
+        sendCommand('START');
+        showToast('🚗 Arrancando motor...', 'info');
+        addEvent('🚗 Arranque remoto iniciado', 'ok');
+    } else if (action === 'stop') {
+        sendCommand('STOP');
+        showToast('🛑 Apagando motor...', 'info');
+        addEvent('🛑 Apagado remoto ejecutado', 'ok');
+    }
+    
+    overlay.hidden = true;
+    state.pendingAction = null;
+}
 
-})();
+function closeChecklistOverlay() {
+    document.getElementById('checklistOverlay').hidden = true;
+    state.pendingAction = null;
+}
 
-// =========================================================================
-// FIN DE APP.JS
-// =========================================================================
+// ==========================================
+// ALARMA
+// ==========================================
 
-console.log('%c🚗 CENTINELA v5.0 ', 'background: #3ED598; color: #0A0D12; padding: 4px 8px; font-weight: bold; font-size: 16px;');
-console.log('%cSistema de seguridad vehicular cargado correctamente', 'color: #8B93A1; font-size: 12px;');
-console.log('%c© 2026 Centinela - Todos los derechos reservados', 'color: #565E6C; font-size: 10px;');
+function showAlarmUI(active) {
+    const badge = document.getElementById('alarmBadge');
+    const app = document.getElementById('app');
+    
+    if (active) {
+        badge.hidden = false;
+        app.dataset.alarm = 'true';
+        document.getElementById('shieldLabel').textContent = '🚨 ALARMA';
+        document.getElementById('shieldSubState').textContent = '¡ALARMA DISPARADA!';
+        showToast('🚨 ¡ALARMA DISPARADA!', 'error');
+        addEvent('🚨 ¡ALARMA DISPARADA!', 'error');
+    } else {
+        badge.hidden = true;
+        app.dataset.alarm = 'false';
+    }
+}
+
+function stopAlarmFromUI() {
+    if (state.isConnected) {
+        sendCommand('STOP');
+        state.isAlarm = false;
+        showAlarmUI(false);
+        showToast('🔇 Alarma desactivada', 'success');
+        addEvent('🔇 Alarma desactivada manualmente', 'ok');
+    } else {
+        showToast('⚠️ Conecta al vehículo para desactivar la alarma', 'warning');
+    }
+}
+
+// ==========================================
+// NAVEGACIÓN
+// ==========================================
+
+function navigateTo(screen) {
+    // Ocultar todas las pantallas
+    document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
+    
+    // Mostrar la pantalla seleccionada
+    const target = document.getElementById(`screen-${screen}`);
+    if (target) target.classList.add('active');
+    
+    // Actualizar tabs
+    document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+    const tab = document.querySelector(`.tab[data-screen="${screen}"]`);
+    if (tab) tab.classList.add('active');
+    
+    // Si es el mapa, inicializar
+    if (screen === 'mapa') {
+        initMap();
+    }
+}
+
+// ==========================================
+// MAPA
+// ==========================================
+
+let mapInstance = null;
+let marker = null;
+
+function initMap() {
+    if (mapInstance) return;
+    
+    const mapContainer = document.getElementById('map');
+    if (!mapContainer) return;
+    
+    try {
+        mapInstance = L.map('map').setView([-34.6037, -58.3816], 13);
+        
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+            attribution: '© OpenStreetMap'
+        }).addTo(mapInstance);
+        
+        marker = L.marker([-34.6037, -58.3816]).addTo(mapInstance);
+        mapContainer.classList.remove('loading');
+    } catch (error) {
+        console.error('Error inicializando mapa:', error);
+    }
+}
+
+// ==========================================
+// UI HELPERS
+// ==========================================
+
+function updateUI() {
+    // Actualizar icono de armado
+    updateShieldUI();
+}
+
+function updateShieldUI() {
+    const shield = document.getElementById('shieldBtn');
+    const label = document.getElementById('shieldLabel');
+    const app = document.getElementById('app');
+    
+    if (state.isArmed) {
+        shield.classList.add('armed');
+        app.dataset.armed = 'true';
+    } else {
+        shield.classList.remove('armed');
+        app.dataset.armed = 'false';
+    }
+}
+
+function addEvent(text, type = 'info') {
+    const feed = document.getElementById('eventFeed');
+    const empty = document.getElementById('eventFeedEmpty');
+    
+    // Eliminar mensaje de vacío
+    if (empty) empty.remove();
+    
+    const eventDiv = document.createElement('div');
+    eventDiv.className = 'event';
+    
+    const iconClass = type === 'error' ? 'danger' : type === 'ok' ? 'ok' : 'info';
+    
+    eventDiv.innerHTML = `
+        <div class="event-icon ${iconClass}">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true">
+                <circle cx="12" cy="12" r="3"/>
+                <path d="M12 2v4M12 18v4"/>
+            </svg>
+        </div>
+        <div class="event-body">
+            <div class="event-title">${text}</div>
+            <div class="event-time">${new Date().toLocaleTimeString()}</div>
+        </div>
+    `;
+    
+    feed.prepend(eventDiv);
+    
+    // Limitar a 50 eventos
+    while (feed.children.length > 50) {
+        feed.removeChild(feed.lastChild);
+    }
+}
+
+function showToast(message, type = 'info') {
+    const toast = document.getElementById('toast');
+    toast.textContent = message;
+    toast.className = 'toast show';
+    
+    // Cambiar color según tipo
+    if (type === 'error') {
+        toast.style.borderColor = '#E74C3C';
+        toast.style.color = '#FF6B6B';
+    } else if (type === 'success') {
+        toast.style.borderColor = '#2ECC71';
+        toast.style.color = '#6BFFB8';
+    } else if (type === 'warning') {
+        toast.style.borderColor = '#F39C12';
+        toast.style.color = '#FFD93D';
+    } else {
+        toast.style.borderColor = '#3498DB';
+        toast.style.color = '#6BCBFF';
+    }
+    
+    clearTimeout(toast._timeout);
+    toast._timeout = setTimeout(() => {
+        toast.className = 'toast';
+    }, 3000);
+}
+
+// ==========================================
+// CONFIGURACIÓN
+// ==========================================
+
+function loadSettings() {
+    const savedName = localStorage.getItem('vehicleName') || 'Mi vehículo';
+    document.getElementById('vehicleNameDisplay').textContent = savedName;
+    document.getElementById('vehicleNameSetting').textContent = savedName;
+}
+
+function editVehicle() {
+    const name = prompt('Nombre del vehículo:', 
+        document.getElementById('vehicleNameSetting').textContent);
+    if (name) {
+        localStorage.setItem('vehicleName', name);
+        document.getElementById('vehicleNameDisplay').textContent = name;
+        document.getElementById('vehicleNameSetting').textContent = name;
+        showToast('✅ Nombre actualizado', 'success');
+    }
+}
+
+function editPlate() {
+    const plate = prompt('Número de placa:', 
+        document.getElementById('vehiclePlate').textContent);
+    if (plate) {
+        document.getElementById('vehiclePlate').textContent = plate;
+        showToast('✅ Placa actualizada', 'success');
+    }
+}
+
+function toggleBiometric(element) {
+    const isOn = element.classList.toggle('on');
+    element.setAttribute('aria-checked', isOn);
+    document.getElementById('bioStatusSub').textContent = 
+        isOn ? 'Activado' : 'Desactivado';
+    showToast(`🔐 Biometría ${isOn ? 'activada' : 'desactivada'}`, 'info');
+}
+
+function toggleProximity(element) {
+    const isOn = element.classList.toggle('on');
+    element.setAttribute('aria-checked', isOn);
+    document.getElementById('proximityLiveCard').style.display = isOn ? 'block' : 'none';
+    showToast(`📡 Proximidad ${isOn ? 'activada' : 'desactivada'}`, 'info');
+}
+
+function toggleSound(element) {
+    const isOn = element.classList.toggle('on');
+    element.setAttribute('aria-checked', isOn);
+    showToast(`🔊 Sonidos ${isOn ? 'activados' : 'desactivados'}`, 'info');
+}
+
+function toggleMode(mode, element) {
+    const isOn = element.classList.toggle('on');
+    element.setAttribute('aria-checked', isOn);
+    
+    if (isOn) {
+        sendCommand(`MODE:${mode.toUpperCase()}:ON`);
+    } else {
+        sendCommand(`MODE:${mode.toUpperCase()}:OFF`);
+    }
+    
+    showToast(`🔄 Modo ${mode} ${isOn ? 'activado' : 'desactivado'}`, 'info');
+}
+
+function toggleSensor(sensor, element) {
+    const isOn = element.classList.toggle('on');
+    element.setAttribute('aria-checked', isOn);
+    showToast(`📡 Sensor ${sensor} ${isOn ? 'activado' : 'desactivado'}`, 'info');
+}
+
+function updateProximityLabel(value) {
+    const labels = ['Muy cerca', 'Cerca', 'Media', 'Lejos', 'Muy lejos'];
+    document.getElementById('proximityValLabel').textContent = labels[value - 1] || 'Media';
+}
+
+// ==========================================
+// EVENTOS
+// ==========================================
+
+function setupEventListeners() {
+    // Toasts para switches
+    document.querySelectorAll('.switch').forEach(sw => {
+        sw.addEventListener('click', function(e) {
+            e.stopPropagation();
+        });
+    });
+    
+    // Cerrar overlays con ESC
+    document.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape') {
+            document.getElementById('checklistOverlay').hidden = true;
+            document.getElementById('pinOverlay').hidden = true;
+        }
+    });
+}
+
+// ==========================================
+// FUNCIONES DE PIN (placeholder)
+// ==========================================
+
+function openPinSetup() {
+    showToast('🔐 Función de PIN en desarrollo', 'info');
+}
+
+function openPinEntry() {
+    document.getElementById('pinOverlay').hidden = false;
+    document.getElementById('pinOverlayTitle').textContent = 'Ingresa tu PIN';
+    document.getElementById('pinOverlaySub').textContent = 'Por seguridad, confirma con tu PIN';
+}
+
+function closePinOverlay() {
+    document.getElementById('pinOverlay').hidden = true;
+}
+
+function pinPress(num) {
+    const dots = document.querySelectorAll('#pinDots span');
+    let filled = false;
+    
+    for (let i = 0; i < dots.length; i++) {
+        if (!dots[i].classList.contains('filled')) {
+            dots[i].classList.add('filled');
+            filled = true;
+            break;
+        }
+    }
+    
+    // Si se llenaron todos, verificar
+    if (document.querySelectorAll('#pinDots span.filled').length === 4) {
+        setTimeout(() => {
+            document.getElementById('pinError').textContent = 'PIN correcto';
+            setTimeout(() => {
+                closePinOverlay();
+                showToast('✅ Desbloqueado', 'success');
+            }, 500);
+        }, 300);
+    }
+}
+
+function pinBackspace() {
+    const dots = document.querySelectorAll('#pinDots span');
+    for (let i = dots.length - 1; i >= 0; i--) {
+        if (dots[i].classList.contains('filled')) {
+            dots[i].classList.remove('filled');
+            break;
+        }
+    }
+    document.getElementById('pinError').textContent = '';
+}
+
+// ==========================================
+// OTRAS FUNCIONES
+// ==========================================
+
+function registerBiometric() {
+    showToast('🔐 Configurando biometría...', 'info');
+    setTimeout(() => {
+        document.getElementById('configOverlay').hidden = true;
+        showToast('✅ Biometría configurada', 'success');
+    }, 1500);
+}
+
+function tryBiometricUnlock() {
+    showToast('🔐 Verificando huella/rostro...', 'info');
+    setTimeout(() => {
+        document.getElementById('lockOverlay').hidden = true;
+        showToast('✅ Desbloqueado', 'success');
+    }, 1500);
+}
+
+function openEmergencyCode() {
+    showToast('🔑 Código de emergencia: 1984', 'info');
+}
+
+function pairNewPhone() {
+    showToast('📱 Abriendo segundo espacio por 60 segundos...', 'info');
+    setTimeout(() => {
+        showToast('⏰ Tiempo para vincular expirado', 'warning');
+    }, 60000);
+}
+
+function forgetPhonesSecure() {
+    if (confirm('¿Seguro que quieres olvidar todos los teléfonos vinculados?')) {
+        if (state.isConnected) {
+            sendCommand('FORGET_ALL');
+        }
+        showToast('🗑️ Todos los teléfonos olvidados', 'info');
+    }
+}
+
+function installApp() {
+    showToast('📱 Centinela ya está instalado', 'info');
+}
+
+// ==========================================
+// EXPORTAR PARA USO EN HTML
+// ==========================================
+window.connectBLE = connectBLE;
+window.disconnectBLE = disconnectBLE;
+window.toggleArm = toggleArm;
+window.setLock = setLock;
+window.toggleLight = toggleLight;
+window.findCar = findCar;
+window.navigateTo = navigateTo;
+window.showToast = showToast;
+window.addEvent = addEvent;
+window.openStartChecklist = openStartChecklist;
+window.confirmStop = confirmStop;
+window.confirmChecklistAction = confirmChecklistAction;
+window.closeChecklistOverlay = closeChecklistOverlay;
+window.updateChecklistStatus = updateChecklistStatus;
+window.stopAlarmFromUI = stopAlarmFromUI;
+window.moveWindowsSimple = moveWindowsSimple;
+window.editVehicle = editVehicle;
+window.editPlate = editPlate;
+window.toggleBiometric = toggleBiometric;
+window.toggleProximity = toggleProximity;
+window.toggleSound = toggleSound;
+window.toggleMode = toggleMode;
+window.toggleSensor = toggleSensor;
+window.updateProximityLabel = updateProximityLabel;
+window.openPinSetup = openPinSetup;
+window.openPinEntry = openPinEntry;
+window.closePinOverlay = closePinOverlay;
+window.pinPress = pinPress;
+window.pinBackspace = pinBackspace;
+window.registerBiometric = registerBiometric;
+window.tryBiometricUnlock = tryBiometricUnlock;
+window.openEmergencyCode = openEmergencyCode;
+window.pairNewPhone = pairNewPhone;
+window.forgetPhonesSecure = forgetPhonesSecure;
+window.installApp = installApp;
+window.sendCommand = sendCommand;
