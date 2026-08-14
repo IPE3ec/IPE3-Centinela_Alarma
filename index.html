@@ -28,38 +28,15 @@
     <link rel="stylesheet" href="./styles.css">
 
     <style>
-        /* ==========================================
-           ESTILOS CRÍTICOS - EVITAR FOUC
-           ========================================== */
+        /* Estilos críticos para evitar FOUC */
         * {
             margin: 0;
             padding: 0;
             box-sizing: border-box;
         }
-        
-        :root {
-            --bg-primary: #0A0D12;
-            --bg-secondary: #11171F;
-            --bg-card: #161E28;
-            --bg-input: #1A2432;
-            --text-primary: #E8EDF5;
-            --text-secondary: #A0B3CC;
-            --text-dim: #5A6F8A;
-            --accent: #2ECC71;
-            --accent-glow: rgba(46, 204, 113, 0.3);
-            --danger: #E74C3C;
-            --danger-glow: rgba(231, 76, 60, 0.3);
-            --warning: #F39C12;
-            --info: #3498DB;
-            --border-color: #1E2A3A;
-            --radius: 12px;
-            --shadow: 0 4px 24px rgba(0,0,0,0.4);
-            --transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-        }
-
         body {
-            background: var(--bg-primary);
-            color: var(--text-primary);
+            background: #0A0D12;
+            color: #E8EDF5;
             font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
             -webkit-font-smoothing: antialiased;
             -moz-osx-font-smoothing: grayscale;
@@ -70,7 +47,6 @@
             user-select: none;
             -webkit-user-select: none;
         }
-
         .app {
             display: flex;
             flex-direction: column;
@@ -78,13 +54,11 @@
             max-width: 480px;
             margin: 0 auto;
             position: relative;
-            background: var(--bg-primary);
+            background: #0A0D12;
             overflow: hidden;
         }
-
-        /* ==========================================
-           SCROLL EN PANTALLAS
-           ========================================== */
+        
+        /* ✅ PERMITIR SCROLL EN LAS PANTALLAS */
         .screens {
             flex: 1;
             overflow-y: auto;
@@ -104,1340 +78,15 @@
             display: block;
         }
 
-        /* ==========================================
-           BOTÓN DE INSTALACIÓN - SIEMPRE OCULTO
-           ========================================== */
+        /* ✅ BOTÓN DE INSTALACIÓN SIEMPRE OCULTO */
         .install-btn-container {
             display: none !important;
-        }
-
-        /* ==========================================
-           BARRA DE ESTADO
-           ========================================== */
-        .statusbar {
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            padding: 10px 16px;
-            background: var(--bg-secondary);
-            border-bottom: 1px solid var(--border-color);
-            flex-shrink: 0;
-            min-height: 52px;
-        }
-
-        .brand {
-            display: flex;
-            align-items: center;
-            gap: 10px;
-        }
-
-        .brand-mark {
-            width: 28px;
-            height: 28px;
-            background: var(--accent);
-            border-radius: 50%;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            flex-shrink: 0;
-        }
-
-        .brand-mark svg {
-            width: 16px;
-            height: 16px;
-        }
-
-        .brand-name {
-            font-family: 'Rajdhani', sans-serif;
-            font-weight: 700;
-            font-size: 16px;
-            letter-spacing: 1.5px;
-            color: var(--text-primary);
-        }
-
-        .brand-version {
-            font-size: 10px;
-            color: var(--text-dim);
-            background: var(--bg-input);
-            padding: 2px 8px;
-            border-radius: 10px;
-            font-weight: 500;
-        }
-
-        .statusbar-right {
-            display: flex;
-            align-items: center;
-            gap: 8px;
-        }
-
-        .alarm-badge {
-            display: flex;
-            align-items: center;
-            gap: 6px;
-            background: var(--danger);
-            color: white;
-            border: none;
-            padding: 4px 10px 4px 6px;
-            border-radius: 20px;
-            font-size: 10px;
-            font-weight: 700;
-            letter-spacing: 0.5px;
-            cursor: pointer;
-            animation: pulse-alarm 0.8s ease-in-out infinite;
-        }
-
-        .alarm-badge-dot {
-            width: 8px;
-            height: 8px;
-            background: white;
-            border-radius: 50%;
-            animation: pulse-dot 0.8s ease-in-out infinite;
-        }
-
-        @keyframes pulse-alarm {
-            0%, 100% { opacity: 1; }
-            50% { opacity: 0.7; }
-        }
-
-        @keyframes pulse-dot {
-            0%, 100% { transform: scale(1); }
-            50% { transform: scale(0.7); }
-        }
-
-        .status-pill {
-            display: flex;
-            align-items: center;
-            gap: 6px;
-            background: var(--bg-input);
-            border: 1px solid var(--border-color);
-            color: var(--text-secondary);
-            padding: 4px 12px 4px 8px;
-            border-radius: 20px;
-            font-size: 11px;
-            font-weight: 500;
-            cursor: pointer;
-            transition: var(--transition);
-            font-family: 'Inter', sans-serif;
-        }
-
-        .status-pill:hover {
-            border-color: var(--accent);
-        }
-
-        .dot {
-            width: 8px;
-            height: 8px;
-            border-radius: 50%;
-            background: var(--text-dim);
-            transition: var(--transition);
-            flex-shrink: 0;
-        }
-
-        .dot.connected {
-            background: var(--accent);
-            box-shadow: 0 0 12px var(--accent-glow);
-        }
-
-        /* ==========================================
-           ADVERTENCIA BLE
-           ========================================== */
-        .ble-warning {
-            position: fixed;
-            top: 0;
-            left: 0;
-            right: 0;
-            z-index: 9999;
-            background: var(--danger);
-            color: white;
-            padding: 12px 16px;
-            font-size: 13px;
-        }
-
-        .ble-warning-content {
-            display: flex;
-            align-items: center;
-            gap: 12px;
-            max-width: 480px;
-            margin: 0 auto;
-        }
-
-        .ble-warning-content svg {
-            width: 24px;
-            height: 24px;
-            flex-shrink: 0;
-        }
-
-        .ble-warning-content strong {
-            display: block;
-            font-weight: 600;
-        }
-
-        .ble-warning-content p {
-            font-size: 12px;
-            opacity: 0.9;
-        }
-
-        /* ==========================================
-           TOAST
-           ========================================== */
-        .toast {
-            position: fixed;
-            bottom: 80px;
-            left: 50%;
-            transform: translateX(-50%) translateY(100px);
-            background: var(--bg-card);
-            color: var(--text-primary);
-            padding: 12px 20px;
-            border-radius: var(--radius);
-            border: 1px solid var(--border-color);
-            box-shadow: var(--shadow);
-            font-size: 13px;
-            font-weight: 500;
-            max-width: 90%;
-            z-index: 999;
-            opacity: 0;
-            transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
-            pointer-events: none;
-            text-align: center;
-        }
-
-        .toast.show {
-            opacity: 1;
-            transform: translateX(-50%) translateY(0);
-            pointer-events: auto;
-        }
-
-        /* ==========================================
-           EYEBROW & TÍTULOS
-           ========================================== */
-        .eyebrow {
-            font-size: 11px;
-            text-transform: uppercase;
-            letter-spacing: 2px;
-            color: var(--text-dim);
-            margin-bottom: 2px;
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-        }
-
-        .eyebrow .version-tag {
-            font-size: 10px;
-            background: var(--bg-input);
-            padding: 1px 8px;
-            border-radius: 10px;
-            color: var(--text-dim);
-        }
-
-        .screen-title {
-            font-family: 'Rajdhani', sans-serif;
-            font-weight: 600;
-            font-size: 22px;
-            margin-bottom: 16px;
-            color: var(--text-primary);
-        }
-
-        /* ==========================================
-           SHIELD (BOTÓN PRINCIPAL)
-           ========================================== */
-        .shield-wrap {
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            position: relative;
-            margin: 8px 0 12px;
-            padding: 20px 0;
-        }
-
-        .ring {
-            position: absolute;
-            border-radius: 50%;
-            border: 1.5px solid var(--border-color);
-            transition: var(--transition);
-        }
-
-        .ring.r1 {
-            width: 190px;
-            height: 190px;
-            border-color: rgba(46, 204, 113, 0.15);
-        }
-
-        .ring.r2 {
-            width: 170px;
-            height: 170px;
-            border-color: rgba(46, 204, 113, 0.1);
-        }
-
-        .ring.r3 {
-            width: 150px;
-            height: 150px;
-            border-color: rgba(46, 204, 113, 0.05);
-        }
-
-        .ring.sweep {
-            border-top-color: var(--accent);
-            animation: spin 4s linear infinite;
-        }
-
-        @keyframes spin {
-            to { transform: rotate(360deg); }
-        }
-
-        .shield-btn {
-            width: 120px;
-            height: 120px;
-            border-radius: 50%;
-            background: var(--bg-card);
-            border: 2px solid var(--border-color);
-            color: var(--text-secondary);
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            justify-content: center;
-            gap: 4px;
-            cursor: pointer;
-            transition: var(--transition);
-            position: relative;
-            z-index: 2;
-            font-family: 'Inter', sans-serif;
-        }
-
-        .shield-btn svg {
-            width: 48px;
-            height: 48px;
-            transition: var(--transition);
-        }
-
-        .shield-label {
-            font-size: 11px;
-            font-weight: 700;
-            letter-spacing: 1px;
-            transition: var(--transition);
-        }
-
-        .shield-btn.armed {
-            border-color: var(--accent);
-            box-shadow: 0 0 40px var(--accent-glow);
-        }
-
-        .shield-btn.armed svg {
-            color: var(--accent);
-        }
-
-        .shield-btn.armed .shield-label {
-            color: var(--accent);
-        }
-
-        .shield-btn.alarm {
-            border-color: var(--danger);
-            box-shadow: 0 0 40px var(--danger-glow);
-            animation: pulse-shield 0.8s ease-in-out infinite;
-        }
-
-        .shield-btn.alarm svg {
-            color: var(--danger);
-        }
-
-        .shield-btn.alarm .shield-label {
-            color: var(--danger);
-        }
-
-        @keyframes pulse-shield {
-            0%, 100% { transform: scale(1); }
-            50% { transform: scale(0.97); }
-        }
-
-        .shield-sub {
-            text-align: center;
-            font-size: 12px;
-            color: var(--text-dim);
-            margin-bottom: 12px;
-        }
-
-        .shield-sub b {
-            color: var(--text-secondary);
-            font-weight: 500;
-        }
-
-        /* ==========================================
-           GRID DE ESTADÍSTICAS
-           ========================================== */
-        .grid {
-            display: grid;
-            grid-template-columns: 1fr 1fr 1fr 1fr;
-            gap: 8px;
-            margin-bottom: 16px;
-        }
-
-        .stat {
-            background: var(--bg-card);
-            border-radius: var(--radius);
-            padding: 10px 8px;
-            text-align: center;
-            border: 1px solid var(--border-color);
-        }
-
-        .stat-label {
-            font-size: 9px;
-            text-transform: uppercase;
-            letter-spacing: 0.5px;
-            color: var(--text-dim);
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            gap: 4px;
-            margin-bottom: 2px;
-        }
-
-        .stat-label svg {
-            width: 12px;
-            height: 12px;
-        }
-
-        .stat-value {
-            font-family: 'JetBrains Mono', monospace;
-            font-size: 15px;
-            font-weight: 600;
-            color: var(--text-primary);
-        }
-
-        /* ==========================================
-           SECCIÓN HEADER
-           ========================================== */
-        .section-head {
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            margin: 16px 0 10px;
-        }
-
-        .section-head h2 {
-            font-family: 'Rajdhani', sans-serif;
-            font-weight: 600;
-            font-size: 16px;
-            color: var(--text-primary);
-        }
-
-        .section-head a {
-            font-size: 12px;
-            color: var(--text-dim);
-            text-decoration: none;
-            cursor: pointer;
-            transition: var(--transition);
-        }
-
-        .section-head a:hover {
-            color: var(--text-secondary);
-        }
-
-        /* ==========================================
-           EVENTOS
-           ========================================== */
-        .event {
-            display: flex;
-            align-items: flex-start;
-            gap: 12px;
-            padding: 10px 12px;
-            background: var(--bg-card);
-            border-radius: var(--radius);
-            border: 1px solid var(--border-color);
-            margin-bottom: 6px;
-        }
-
-        .event-icon {
-            width: 28px;
-            height: 28px;
-            border-radius: 50%;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            flex-shrink: 0;
-            font-size: 14px;
-        }
-
-        .event-icon.ok {
-            background: rgba(46, 204, 113, 0.15);
-            color: var(--accent);
-        }
-
-        .event-icon.danger {
-            background: rgba(231, 76, 60, 0.15);
-            color: var(--danger);
-        }
-
-        .event-icon.info {
-            background: rgba(52, 152, 219, 0.15);
-            color: var(--info);
-        }
-
-        .event-icon svg {
-            width: 14px;
-            height: 14px;
-        }
-
-        .event-body {
-            flex: 1;
-            min-width: 0;
-        }
-
-        .event-title {
-            font-size: 13px;
-            font-weight: 500;
-            color: var(--text-primary);
-        }
-
-        .event-time {
-            font-size: 10px;
-            color: var(--text-dim);
-            margin-top: 1px;
-        }
-
-        /* ==========================================
-           MAPA
-           ========================================== */
-        .map-card {
-            background: var(--bg-card);
-            border-radius: var(--radius);
-            border: 1px solid var(--border-color);
-            overflow: hidden;
-            margin-bottom: 12px;
-            position: relative;
-        }
-
-        .map-geo {
-            width: 100%;
-            height: 200px;
-            background: var(--bg-input);
-            position: relative;
-        }
-
-        .map-geo.loading {
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            color: var(--text-dim);
-            font-size: 13px;
-        }
-
-        .map-geo.loading::after {
-            content: 'Cargando mapa...';
-        }
-
-        .map-badge {
-            padding: 10px 14px;
-            font-size: 12px;
-            color: var(--text-secondary);
-            border-top: 1px solid var(--border-color);
-        }
-
-        .map-badge b {
-            color: var(--text-primary);
-        }
-
-        /* ==========================================
-           LIST ROW
-           ========================================== */
-        .list-row {
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            padding: 12px 14px;
-            background: var(--bg-card);
-            border-radius: var(--radius);
-            border: 1px solid var(--border-color);
-            margin-bottom: 6px;
-            cursor: default;
-        }
-
-        .list-row-label {
-            font-size: 13px;
-            font-weight: 500;
-            color: var(--text-primary);
-        }
-
-        .list-row-sub {
-            font-size: 11px;
-            color: var(--text-dim);
-            margin-top: 1px;
-        }
-
-        /* ==========================================
-           SWITCH
-           ========================================== */
-        .switch {
-            width: 44px;
-            height: 26px;
-            background: var(--bg-input);
-            border-radius: 13px;
-            position: relative;
-            cursor: pointer;
-            transition: var(--transition);
-            flex-shrink: 0;
-            border: 1px solid var(--border-color);
-        }
-
-        .switch::after {
-            content: '';
-            width: 20px;
-            height: 20px;
-            background: var(--text-dim);
-            border-radius: 50%;
-            position: absolute;
-            top: 2px;
-            left: 2px;
-            transition: var(--transition);
-        }
-
-        .switch.on {
-            background: var(--accent);
-            border-color: var(--accent);
-        }
-
-        .switch.on::after {
-            transform: translateX(18px);
-            background: white;
-        }
-
-        /* ==========================================
-           SEGMENTED CONTROL (LOCK/UNLOCK)
-           ========================================== */
-        .segmented {
-            display: flex;
-            background: var(--bg-input);
-            border-radius: var(--radius);
-            padding: 3px;
-            margin-bottom: 12px;
-            border: 1px solid var(--border-color);
-        }
-
-        .segmented-btn {
-            flex: 1;
-            padding: 8px;
-            border: none;
-            background: transparent;
-            color: var(--text-dim);
-            font-family: 'Inter', sans-serif;
-            font-size: 12px;
-            font-weight: 500;
-            border-radius: 8px;
-            cursor: pointer;
-            transition: var(--transition);
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            gap: 6px;
-        }
-
-        .segmented-btn svg {
-            width: 16px;
-            height: 16px;
-        }
-
-        .segmented-btn.active {
-            background: var(--bg-card);
-            color: var(--text-primary);
-            box-shadow: 0 2px 8px rgba(0,0,0,0.3);
-        }
-
-        /* ==========================================
-           VIDRIOS (SIMPLIFICADO)
-           ========================================== */
-        .window-simple {
-            background: var(--bg-card);
-            border-radius: var(--radius);
-            padding: 14px;
-            border: 1px solid var(--border-color);
-            margin-bottom: 12px;
-        }
-
-        .window-simple-top {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            margin-bottom: 6px;
-        }
-
-        .window-simple-label {
-            font-size: 13px;
-            font-weight: 500;
-            color: var(--text-primary);
-        }
-
-        .window-simple-pct {
-            font-family: 'JetBrains Mono', monospace;
-            font-size: 13px;
-            color: var(--text-secondary);
-        }
-
-        .window-simple-track {
-            width: 100%;
-            height: 4px;
-            background: var(--bg-input);
-            border-radius: 2px;
-            overflow: hidden;
-            margin-bottom: 8px;
-        }
-
-        .window-simple-fill {
-            height: 100%;
-            background: var(--accent);
-            border-radius: 2px;
-            transition: width 0.3s ease;
-            width: 0%;
-        }
-
-        .window-simple-btns {
-            display: flex;
-            gap: 8px;
-        }
-
-        .window-simple-btn {
-            flex: 1;
-            padding: 6px;
-            border: 1px solid var(--border-color);
-            background: var(--bg-input);
-            color: var(--text-secondary);
-            border-radius: 8px;
-            font-size: 12px;
-            font-weight: 500;
-            cursor: pointer;
-            transition: var(--transition);
-            font-family: 'Inter', sans-serif;
-        }
-
-        .window-simple-btn:hover {
-            border-color: var(--accent);
-            color: var(--text-primary);
-        }
-
-        /* ==========================================
-           LUCES - GRID
-           ========================================== */
-        .light-grid {
-            display: grid;
-            grid-template-columns: 1fr 1fr 1fr 1fr;
-            gap: 6px;
-            margin-bottom: 12px;
-        }
-
-        .light-item {
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            gap: 2px;
-            padding: 8px 4px;
-            background: var(--bg-card);
-            border: 1px solid var(--border-color);
-            border-radius: var(--radius);
-            cursor: pointer;
-            transition: var(--transition);
-            color: var(--text-dim);
-            font-family: 'Inter', sans-serif;
-            font-size: 9px;
-        }
-
-        .light-item:hover {
-            border-color: var(--text-dim);
-        }
-
-        .light-item.active {
-            border-color: var(--accent);
-            color: var(--accent);
-            box-shadow: 0 0 20px var(--accent-glow);
-        }
-
-        .light-item-icon svg {
-            width: 20px;
-            height: 20px;
-        }
-
-        .light-item-label {
-            font-weight: 500;
-            letter-spacing: 0.3px;
-        }
-
-        .fault-banner {
-            display: flex;
-            align-items: center;
-            gap: 8px;
-            padding: 8px 12px;
-            background: rgba(231, 76, 60, 0.1);
-            border: 1px solid var(--danger);
-            border-radius: var(--radius);
-            color: var(--danger);
-            font-size: 12px;
-            margin-bottom: 8px;
-        }
-
-        .fault-banner svg {
-            width: 18px;
-            height: 18px;
-            flex-shrink: 0;
-        }
-
-        /* ==========================================
-           CONTROL GRID (OTRAS ACCIONES)
-           ========================================== */
-        .ctrl-grid {
-            display: grid;
-            grid-template-columns: 1fr 1fr;
-            gap: 6px;
-            margin-bottom: 8px;
-        }
-
-        .ctrl-btn {
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            gap: 8px;
-            padding: 10px 12px;
-            background: var(--bg-card);
-            border: 1px solid var(--border-color);
-            border-radius: var(--radius);
-            color: var(--text-secondary);
-            font-family: 'Inter', sans-serif;
-            font-size: 12px;
-            font-weight: 500;
-            cursor: pointer;
-            transition: var(--transition);
-        }
-
-        .ctrl-btn:hover {
-            border-color: var(--text-dim);
-        }
-
-        .ctrl-btn svg {
-            width: 18px;
-            height: 18px;
-        }
-
-        .ctrl-btn.full {
-            grid-column: 1 / -1;
-        }
-
-        .ctrl-btn.danger {
-            color: var(--danger);
-            border-color: rgba(231, 76, 60, 0.2);
-        }
-
-        .ctrl-btn.danger:hover {
-            border-color: var(--danger);
-        }
-
-        /* ==========================================
-           CÁMARA
-           ========================================== */
-        .cam-feed {
-            background: var(--bg-card);
-            border-radius: var(--radius);
-            padding: 30px 20px;
-            text-align: center;
-            border: 1px solid var(--border-color);
-            margin-bottom: 12px;
-        }
-
-        .cam-feed .rec {
-            font-size: 11px;
-            font-weight: 600;
-            color: var(--danger);
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            gap: 6px;
-            margin-bottom: 8px;
-        }
-
-        .cam-feed .rec .dot {
-            width: 8px;
-            height: 8px;
-            background: var(--danger);
-            border-radius: 50%;
-            animation: pulse-dot 0.8s ease-in-out infinite;
-        }
-
-        .cam-feed svg {
-            width: 48px;
-            height: 48px;
-            color: var(--text-dim);
-            margin: 8px auto;
-        }
-
-        .cam-feed p {
-            font-size: 13px;
-            color: var(--text-dim);
-        }
-
-        /* ==========================================
-           GALERÍA
-           ========================================== */
-        .gallery {
-            display: grid;
-            grid-template-columns: 1fr 1fr 1fr;
-            gap: 6px;
-        }
-
-        .gallery-item {
-            aspect-ratio: 1;
-            background: var(--bg-input);
-            border-radius: var(--radius);
-            border: 1px solid var(--border-color);
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            color: var(--text-dim);
-        }
-
-        .gallery-item svg {
-            width: 28px;
-            height: 28px;
-        }
-
-        /* ==========================================
-           AJUSTES - GRUPOS
-           ========================================== */
-        .settings-group {
-            margin-bottom: 16px;
-        }
-
-        .settings-group h3 {
-            font-size: 11px;
-            text-transform: uppercase;
-            letter-spacing: 1px;
-            color: var(--text-dim);
-            margin-bottom: 6px;
-        }
-
-        .settings-note {
-            font-size: 11px;
-            color: var(--text-dim);
-            padding: 6px 4px;
-            margin-bottom: 4px;
-        }
-
-        .proximity-meter {
-            background: var(--bg-card);
-            border-radius: var(--radius);
-            padding: 12px 14px;
-            border: 1px solid var(--border-color);
-            margin-bottom: 6px;
-        }
-
-        .proximity-meter-top {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            margin-bottom: 4px;
-        }
-
-        .proximity-meter-val {
-            font-size: 12px;
-            color: var(--text-secondary);
-            font-weight: 500;
-        }
-
-        .range {
-            width: 100%;
-            -webkit-appearance: none;
-            appearance: none;
-            height: 4px;
-            background: var(--bg-input);
-            border-radius: 2px;
-            outline: none;
-        }
-
-        .range::-webkit-slider-thumb {
-            -webkit-appearance: none;
-            appearance: none;
-            width: 16px;
-            height: 16px;
-            border-radius: 50%;
-            background: var(--accent);
-            cursor: pointer;
-            box-shadow: 0 0 12px var(--accent-glow);
-        }
-
-        .range::-moz-range-thumb {
-            width: 16px;
-            height: 16px;
-            border-radius: 50%;
-            background: var(--accent);
-            cursor: pointer;
-            border: none;
-        }
-
-        .range-labels {
-            display: flex;
-            justify-content: space-between;
-            font-size: 9px;
-            color: var(--text-dim);
-            margin-top: 2px;
-        }
-
-        /* ==========================================
-           OVERLAYS - MODALES
-           ========================================== */
-        .overlay {
-            position: fixed;
-            top: 0;
-            left: 0;
-            right: 0;
-            bottom: 0;
-            background: rgba(0,0,0,0.8);
-            backdrop-filter: blur(12px);
-            -webkit-backdrop-filter: blur(12px);
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            z-index: 1000;
-            padding: 20px;
-        }
-
-        .overlay[hidden] {
-            display: none;
-        }
-
-        .lock-card, .modal-card {
-            background: var(--bg-secondary);
-            border-radius: 20px;
-            padding: 28px 24px;
-            max-width: 360px;
-            width: 100%;
-            border: 1px solid var(--border-color);
-            box-shadow: var(--shadow);
-            text-align: center;
-        }
-
-        .lock-icon {
-            width: 56px;
-            height: 56px;
-            border-radius: 50%;
-            background: var(--bg-input);
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            margin: 0 auto 12px;
-            border: 1px solid var(--border-color);
-        }
-
-        .lock-icon svg {
-            width: 28px;
-            height: 28px;
-            color: var(--accent);
-        }
-
-        .lock-title {
-            font-family: 'Rajdhani', sans-serif;
-            font-weight: 600;
-            font-size: 20px;
-            color: var(--text-primary);
-        }
-
-        .lock-sub {
-            font-size: 13px;
-            color: var(--text-secondary);
-            margin: 4px 0 16px;
-        }
-
-        .btn-primary {
-            width: 100%;
-            padding: 12px;
-            background: var(--accent);
-            color: #0A0D12;
-            border: none;
-            border-radius: var(--radius);
-            font-family: 'Inter', sans-serif;
-            font-weight: 600;
-            font-size: 14px;
-            cursor: pointer;
-            transition: var(--transition);
-            margin-bottom: 8px;
-        }
-
-        .btn-primary:hover {
-            transform: translateY(-1px);
-            box-shadow: 0 4px 20px var(--accent-glow);
-        }
-
-        .btn-primary:disabled {
-            opacity: 0.5;
-            cursor: not-allowed;
-            transform: none;
-        }
-
-        .btn-secondary {
-            width: 100%;
-            padding: 12px;
-            background: transparent;
-            color: var(--text-secondary);
-            border: 1px solid var(--border-color);
-            border-radius: var(--radius);
-            font-family: 'Inter', sans-serif;
-            font-weight: 500;
-            font-size: 14px;
-            cursor: pointer;
-            transition: var(--transition);
-        }
-
-        .btn-secondary:hover {
-            border-color: var(--text-dim);
-            color: var(--text-primary);
-        }
-
-        /* ==========================================
-           PIN
-           ========================================== */
-        .pin-dots {
-            display: flex;
-            justify-content: center;
-            gap: 12px;
-            margin: 12px 0 8px;
-        }
-
-        .pin-dots span {
-            width: 16px;
-            height: 16px;
-            border-radius: 50%;
-            border: 2px solid var(--border-color);
-            transition: var(--transition);
-        }
-
-        .pin-dots span.filled {
-            background: var(--accent);
-            border-color: var(--accent);
-            box-shadow: 0 0 12px var(--accent-glow);
-        }
-
-        .pin-error {
-            font-size: 12px;
-            color: var(--danger);
-            min-height: 20px;
-        }
-
-        .pin-pad {
-            display: grid;
-            grid-template-columns: 1fr 1fr 1fr;
-            gap: 8px;
-            margin: 12px 0;
-        }
-
-        .pin-pad button {
-            padding: 14px;
-            background: var(--bg-input);
-            border: 1px solid var(--border-color);
-            border-radius: var(--radius);
-            color: var(--text-primary);
-            font-family: 'Inter', sans-serif;
-            font-size: 20px;
-            font-weight: 600;
-            cursor: pointer;
-            transition: var(--transition);
-        }
-
-        .pin-pad button:hover {
-            border-color: var(--text-dim);
-        }
-
-        .pin-pad button:disabled {
-            opacity: 0.3;
-            cursor: default;
-        }
-
-        /* ==========================================
-           CHECKLIST
-           ========================================== */
-        .checklist-card {
-            max-width: 380px;
-        }
-
-        .checklist-icon {
-            width: 48px;
-            height: 48px;
-            border-radius: 50%;
-            background: var(--bg-input);
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            margin: 0 auto 10px;
-            border: 1px solid var(--border-color);
-        }
-
-        .checklist-icon svg {
-            width: 24px;
-            height: 24px;
-            color: var(--accent);
-        }
-
-        .checklist-items {
-            margin: 12px 0;
-            text-align: left;
-        }
-
-        .checklist-item {
-            display: flex;
-            align-items: center;
-            gap: 10px;
-            padding: 6px 0;
-            font-size: 13px;
-            color: var(--text-secondary);
-            border-bottom: 1px solid var(--border-color);
-        }
-
-        .checklist-item:last-child {
-            border-bottom: none;
-        }
-
-        .checklist-item input[type="checkbox"] {
-            width: 18px;
-            height: 18px;
-            accent-color: var(--accent);
-            cursor: pointer;
-            flex-shrink: 0;
-        }
-
-        .checklist-item label {
-            cursor: pointer;
-        }
-
-        /* ==========================================
-           TABBAR
-           ========================================== */
-        .tabbar {
-            display: flex;
-            background: var(--bg-secondary);
-            border-top: 1px solid var(--border-color);
-            padding: 4px 0 env(safe-area-inset-bottom) 0;
-            flex-shrink: 0;
-            position: sticky;
-            bottom: 0;
-            z-index: 10;
-        }
-
-        .tab {
-            flex: 1;
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            gap: 2px;
-            padding: 6px 0;
-            color: var(--text-dim);
-            text-decoration: none;
-            transition: var(--transition);
-            font-size: 10px;
-            font-weight: 500;
-            cursor: pointer;
-            font-family: 'Inter', sans-serif;
-            border: none;
-            background: transparent;
-        }
-
-        .tab svg {
-            width: 22px;
-            height: 22px;
-            transition: var(--transition);
-        }
-
-        .tab.active {
-            color: var(--accent);
-        }
-
-        .tab.active svg {
-            color: var(--accent);
-            stroke-width: 2.5px;
-        }
-
-        /* ==========================================
-           RESPONSIVE - AJUSTES PARA MÓVILES
-           ========================================== */
-        @media (max-width: 480px) {
-            .app {
-                max-width: 100%;
-            }
-
-            .grid {
-                grid-template-columns: 1fr 1fr;
-            }
-
-            .light-grid {
-                grid-template-columns: 1fr 1fr 1fr 1fr;
-                gap: 4px;
-            }
-
-            .light-item {
-                padding: 6px 2px;
-                font-size: 8px;
-            }
-
-            .light-item-icon svg {
-                width: 16px;
-                height: 16px;
-            }
-
-            .shield-btn {
-                width: 100px;
-                height: 100px;
-            }
-
-            .shield-btn svg {
-                width: 40px;
-                height: 40px;
-            }
-
-            .ring.r1 { width: 160px; height: 160px; }
-            .ring.r2 { width: 140px; height: 140px; }
-            .ring.r3 { width: 120px; height: 120px; }
-
-            .ctrl-grid {
-                grid-template-columns: 1fr 1fr;
-            }
-
-            .gallery {
-                grid-template-columns: 1fr 1fr 1fr;
-            }
-        }
-
-        @media (max-width: 380px) {
-            .light-grid {
-                grid-template-columns: 1fr 1fr 1fr;
-            }
-
-            .stat-value {
-                font-size: 13px;
-            }
-        }
-
-        @media (min-width: 768px) {
-            .app {
-                max-width: 420px;
-                border-left: 1px solid var(--border-color);
-                border-right: 1px solid var(--border-color);
-                box-shadow: 0 0 60px rgba(0,0,0,0.5);
-            }
-        }
-
-        /* ==========================================
-           SCROLLBAR PERSONALIZADA
-           ========================================== */
-        .screens::-webkit-scrollbar {
-            width: 3px;
-        }
-
-        .screens::-webkit-scrollbar-track {
-            background: transparent;
-        }
-
-        .screens::-webkit-scrollbar-thumb {
-            background: var(--border-color);
-            border-radius: 10px;
-        }
-
-        .screens::-webkit-scrollbar-thumb:hover {
-            background: var(--text-dim);
         }
     </style>
 </head>
 <body>
 
-<!-- ========================= ADVERTENCIA BLE ========================= -->
+<!-- ========================= ADVERTENCIA DE NAVEGADOR NO COMPATIBLE ========================= -->
 <div class="ble-warning" id="bleWarning" hidden>
     <div class="ble-warning-content">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
@@ -1450,10 +99,9 @@
     </div>
 </div>
 
-<!-- ========================= APP PRINCIPAL ========================= -->
-<div class="app" id="app">
+<div class="app" data-armed="false" data-alarm="false" id="app">
 
-    <!-- ========================= BARRA DE ESTADO ========================= -->
+    <!-- ========================= BARRA DE ESTADO SUPERIOR ========================= -->
     <div class="statusbar">
         <div class="brand">
             <div class="brand-mark">
@@ -1490,10 +138,10 @@
             <h1 class="screen-title" id="screen-inicio-title">Panel de control</h1>
 
             <div class="shield-wrap">
-                <div class="ring r1"></div>
+                <div class="ring r1 sweep"></div>
                 <div class="ring r2"></div>
                 <div class="ring r3"></div>
-                <button class="shield-btn" id="shieldBtn" onclick="toggleArm()" aria-label="Armar o desarmar sistema">
+                <button class="shield-btn" id="shieldBtn" aria-pressed="false" onclick="toggleArm()" aria-label="Armar o desarmar sistema">
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
                         <path d="M12 2l8 3v6c0 5-3.4 8.4-8 11-4.6-2.6-8-6-8-11V5l8-3z"/>
                     </svg>
@@ -1506,33 +154,54 @@
 
             <div class="grid">
                 <div class="stat">
-                    <div class="stat-label">Batería</div>
-                    <div class="stat-value" id="statBattery">—</div>
+                    <div class="stat-label">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                            <path d="M13 2L3 14h7l-1 8 10-12h-7l1-8z"/>
+                        </svg>
+                        Batería
+                    </div>
+                    <div class="stat-value" id="statBattery" aria-live="polite">—</div>
                 </div>
                 <div class="stat">
-                    <div class="stat-label">Motor</div>
-                    <div class="stat-value" id="statMotorTemp">—</div>
+                    <div class="stat-label">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                            <path d="M12 2v4M12 18v4M4.9 4.9l2.8 2.8M16.3 16.3l2.8 2.8M2 12h4M18 12h4M4.9 19.1l2.8-2.8M16.3 7.7l2.8-2.8"/>
+                        </svg>
+                        Motor
+                    </div>
+                    <div class="stat-value" id="statMotorTemp" aria-live="polite">—</div>
                 </div>
                 <div class="stat">
-                    <div class="stat-label">Combustible</div>
-                    <div class="stat-value" id="statFuel">—</div>
+                    <div class="stat-label">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                            <path d="M3 22h18M6 18V9l6-5 6 5v9M9 22V14h6v8"/>
+                        </svg>
+                        Combustible
+                    </div>
+                    <div class="stat-value" id="statFuel" aria-live="polite">—</div>
                 </div>
                 <div class="stat">
-                    <div class="stat-label">GPS</div>
-                    <div class="stat-value" id="statGps">—</div>
+                    <div class="stat-label">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                            <circle cx="12" cy="12" r="9"/>
+                            <path d="M12 7v5l3 3"/>
+                        </svg>
+                        Señal GPS
+                    </div>
+                    <div class="stat-value" id="statGps" aria-live="polite">—</div>
                 </div>
             </div>
 
             <div class="section-head">
                 <h2>Actividad reciente</h2>
-                <a onclick="navigateTo('mapa')" role="button" tabindex="0">Ver mapa →</a>
+                <a data-goto="mapa" onclick="navigateTo('mapa')" role="button" tabindex="0">Ver mapa →</a>
             </div>
 
             <div id="eventFeed" role="log" aria-live="polite" aria-atomic="false">
                 <div class="event" id="eventFeedEmpty">
                     <div class="event-body">
                         <div class="event-title" style="color:var(--text-dim);">Sin actividad todavía</div>
-                        <div class="event-time">Conecta tu vehículo para empezar a registrar eventos</div>
+                        <div class="event-time">Vincula tu vehículo para empezar a registrar eventos</div>
                     </div>
                 </div>
             </div>
@@ -1555,7 +224,7 @@
                     <div class="list-row-label">Geocerca "Casa"</div>
                     <div class="list-row-sub">Radio 150 m · notificar al salir</div>
                 </div>
-                <div class="switch on" role="switch" aria-checked="true" tabindex="0" onclick="this.classList.toggle('on')"></div>
+                <div class="switch on" role="switch" aria-checked="true" tabindex="0"></div>
             </div>
 
             <div class="list-row">
@@ -1563,7 +232,7 @@
                     <div class="list-row-label">Alerta de exceso de velocidad</div>
                     <div class="list-row-sub">Límite: 100 km/h</div>
                 </div>
-                <div class="switch on" role="switch" aria-checked="true" tabindex="0" onclick="this.classList.toggle('on')"></div>
+                <div class="switch on" role="switch" aria-checked="true" tabindex="0"></div>
             </div>
 
             <div class="list-row">
@@ -1571,7 +240,7 @@
                     <div class="list-row-label">Compartir ubicación</div>
                     <div class="list-row-sub">Con 2 contactos de confianza</div>
                 </div>
-                <div class="switch" role="switch" aria-checked="false" tabindex="0" onclick="this.classList.toggle('on')"></div>
+                <div class="switch" role="switch" aria-checked="false" tabindex="0"></div>
             </div>
 
             <div class="section-head" style="margin-top:8px;">
@@ -1603,7 +272,8 @@
                     <div class="event-time">Ayer · 18:20 – 18:52</div>
                 </div>
             </div>
-
+            
+            <!-- Espacio extra para scroll -->
             <div style="height:20px;"></div>
         </section>
 
@@ -1613,12 +283,27 @@
             <h1 class="screen-title" id="screen-control-title">Acciones rápidas</h1>
 
             <!-- BLUETOOTH -->
-            <button class="list-row" id="keyLinkCard" onclick="connectBLE()" aria-label="Conectar por Bluetooth" style="width:100%; text-align:left; cursor:pointer; margin-bottom:12px;">
-                <div>
-                    <div class="list-row-label" id="keyLinkTitle">📱 Toca para conectar por Bluetooth</div>
-                    <div class="list-row-sub" id="keyLinkSub">Sin conexión</div>
+            <button class="key-link" id="keyLinkCard" onclick="connectBLE()" aria-label="Conectar por Bluetooth">
+                <div class="key-link-icon">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                        <rect x="7" y="2" width="10" height="20" rx="2"/>
+                        <path d="M11 18h2"/>
+                    </svg>
                 </div>
-                <span class="dot" id="beam" style="width:8px; height:8px; border-radius:50%; background:var(--text-dim); flex-shrink:0;"></span>
+                <div class="beam" id="beam" style="opacity:0.35">
+                    <span class="beam-dot"></span>
+                    <span class="beam-dot"></span>
+                    <span class="beam-dot"></span>
+                </div>
+                <div class="key-link-icon">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                        <path d="M12 2l8 3v6c0 5-3.4 8.4-8 11-4.6-2.6-8-6-8-11V5l8-3z"/>
+                    </svg>
+                </div>
+                <div class="key-link-status">
+                    <div class="key-link-title" id="keyLinkTitle">📱 Toca para conectar por Bluetooth</div>
+                    <div class="key-link-sub" id="keyLinkSub">Sin conexión</div>
+                </div>
             </button>
 
             <!-- SEGUROS -->
@@ -1696,7 +381,7 @@
                             <path d="M15 5l-7 7 7 7"/>
                         </svg>
                     </span>
-                    <span class="light-item-label">Izq.</span>
+                    <span class="light-item-label">Direcc. izq.</span>
                 </button>
                 <button class="light-item" data-id="TURN_R" onclick="toggleLight('TURN_R')" aria-pressed="false">
                     <span class="light-item-icon">
@@ -1704,7 +389,7 @@
                             <path d="M9 5l7 7-7 7"/>
                         </svg>
                     </span>
-                    <span class="light-item-label">Der.</span>
+                    <span class="light-item-label">Direcc. der.</span>
                 </button>
                 <button class="light-item" data-id="BRAKE" onclick="toggleLight('BRAKE')" aria-pressed="false">
                     <span class="light-item-icon">
@@ -1729,7 +414,7 @@
                             <path d="M3 8h18M3 12h18M3 16h12"/>
                         </svg>
                     </span>
-                    <span class="light-item-label">Niebla</span>
+                    <span class="light-item-label">Antiniebla</span>
                 </button>
                 <button class="light-item" data-id="PARK" onclick="toggleLight('PARK')" aria-pressed="false">
                     <span class="light-item-icon">
@@ -1750,20 +435,20 @@
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true">
                         <path d="M3 10l2-6h14l2 6M3 10h18M3 10v9a1 1 0 001 1h1a1 1 0 001-1v-1h12v1a1 1 0 001 1h1a1 1 0 001-1v-9"/>
                     </svg>
-                    <span id="trunkBtnLabel">Maletero</span>
+                    <span id="trunkBtnLabel">Mantén presionado 3s</span>
                 </button>
                 <button class="ctrl-btn" onclick="findCar()" aria-label="Encontrar auto">
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true">
                         <path d="M12 2C8 2 5 5 5 9c0 5 7 13 7 13s7-8 7-13c0-4-3-7-7-7z"/>
                         <circle cx="12" cy="9" r="2.3"/>
                     </svg>
-                    <span>Encontrar</span>
+                    <span>Encontrar auto</span>
                 </button>
                 <button class="ctrl-btn" id="startEngineBtn" onclick="openStartChecklist()" aria-label="Arranque remoto del motor">
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true">
                         <path d="M13 2L3 14h7l-1 8 10-12h-7l1-8z"/>
                     </svg>
-                    <span>Arrancar</span>
+                    <span>Arranque remoto</span>
                 </button>
                 <button class="ctrl-btn full danger" onclick="sendCmd('HORN', '🚨 Sirena activada')" aria-label="Sirena de emergencia">
                     <span style="display:flex; align-items:center; gap:10px;">
@@ -1771,7 +456,7 @@
                             <path d="M18 8a6 6 0 00-12 0c0 7-3 9-3 9h18s-3-2-3-9"/>
                             <path d="M13.7 21a2 2 0 01-3.4 0"/>
                         </svg>
-                        <span>Sirena</span>
+                        <span>Sirena de emergencia</span>
                     </span>
                     <svg viewBox="0 0 24 24" fill="none" stroke="var(--text-dim)" stroke-width="2" stroke-linecap="round" style="width:16px;height:16px;" aria-hidden="true">
                         <path d="M9 18l6-6-6-6"/>
@@ -1783,7 +468,7 @@
                             <circle cx="12" cy="12" r="9"/>
                             <path d="M9 9l6 6M15 9l-6 6"/>
                         </svg>
-                        <span>Apagar motor</span>
+                        <span>Apagado remoto del motor</span>
                     </span>
                     <svg viewBox="0 0 24 24" fill="none" stroke="var(--text-dim)" stroke-width="2" stroke-linecap="round" style="width:16px;height:16px;" aria-hidden="true">
                         <path d="M9 18l6-6-6-6"/>
@@ -1791,10 +476,11 @@
                 </button>
             </div>
 
-            <p style="font-size:11px; color:var(--text-dim); text-align:center; margin-top:4px;">
+            <p style="font-size:11.5px; color:var(--text-dim); text-align:center; margin-top:4px;">
                 El apagado remoto solo se ejecuta con el vehículo detenido y el freno de mano activado.
             </p>
-
+            
+            <!-- Espacio extra para scroll -->
             <div style="height:20px;"></div>
         </section>
 
@@ -1866,7 +552,8 @@
                     </svg>
                 </div>
             </div>
-
+            
+            <!-- Espacio extra para scroll -->
             <div style="height:20px;"></div>
         </section>
 
@@ -2069,42 +756,43 @@
                     <span style="color:var(--text-dim); font-size:13px;">›</span>
                 </button>
             </div>
-
+            
+            <!-- Espacio extra para scroll -->
             <div style="height:20px;"></div>
         </section>
     </div>
 
     <!-- ========================= BARRA DE NAVEGACIÓN ========================= -->
     <nav class="tabbar" id="tabbar" role="navigation" aria-label="Navegación principal">
-        <a class="tab active" data-screen="inicio" onclick="navigateTo('inicio')" role="button" aria-label="Ir a inicio">
+        <a class="tab active" data-screen="inicio" href="#inicio" onclick="navigateTo('inicio')" role="button" aria-label="Ir a inicio">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
                 <path d="M3 11l9-8 9 8"/>
                 <path d="M5 10v10h14V10"/>
             </svg>
             <span>Inicio</span>
         </a>
-        <a class="tab" data-screen="mapa" onclick="navigateTo('mapa')" role="button" aria-label="Ir a mapa">
+        <a class="tab" data-screen="mapa" href="#mapa" onclick="navigateTo('mapa')" role="button" aria-label="Ir a mapa">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
                 <path d="M1 6l7-3 8 3 7-3v15l-7 3-8-3-7 3z"/>
                 <path d="M8 3v15M16 6v15"/>
             </svg>
             <span>Mapa</span>
         </a>
-        <a class="tab" data-screen="control" onclick="navigateTo('control')" role="button" aria-label="Ir a control">
+        <a class="tab" data-screen="control" href="#control" onclick="navigateTo('control')" role="button" aria-label="Ir a control">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
                 <circle cx="12" cy="12" r="9"/>
                 <circle cx="12" cy="12" r="3"/>
             </svg>
             <span>Control</span>
         </a>
-        <a class="tab" data-screen="camara" onclick="navigateTo('camara')" role="button" aria-label="Ir a cámara">
+        <a class="tab" data-screen="camara" href="#camara" onclick="navigateTo('camara')" role="button" aria-label="Ir a cámara">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
                 <path d="M23 19a2 2 0 01-2 2H3a2 2 0 01-2-2V8a2 2 0 012-2h4l2-3h6l2 3h4a2 2 0 012 2z"/>
                 <circle cx="12" cy="13" r="4"/>
             </svg>
             <span>Cámara</span>
         </a>
-        <a class="tab" data-screen="ajustes" onclick="navigateTo('ajustes')" role="button" aria-label="Ir a ajustes">
+        <a class="tab" data-screen="ajustes" href="#ajustes" onclick="navigateTo('ajustes')" role="button" aria-label="Ir a ajustes">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
                 <circle cx="12" cy="12" r="3"/>
                 <path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 11-2.83 2.83l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 11-2.83-2.83l.06-.06A1.65 1.65 0 005 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 112.83-2.83l.06.06A1.65 1.65 0 009 4.6a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 112.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/>
@@ -2113,7 +801,6 @@
         </a>
     </nav>
 
-    <!-- ========================= TOAST ========================= -->
     <div class="toast" id="toast" role="alert" aria-live="assertive" aria-atomic="true"></div>
 </div>
 
@@ -2179,7 +866,7 @@
     </div>
 </div>
 
-<!-- ========================= CHECKLIST ARRANQUE ========================= -->
+<!-- ========================= CHECKLIST ARRANQUE / APAGADO REMOTO ========================= -->
 <div class="overlay" id="checklistOverlay" hidden role="dialog" aria-labelledby="checklist-title" aria-modal="true">
     <div class="modal-card checklist-card">
         <div class="checklist-icon" id="checklistIcon">
@@ -2201,7 +888,8 @@
     </div>
 </div>
 
-<!-- ========================= BOTÓN DE INSTALACIÓN - OCULTO ========================= -->
+<!-- ========================= BOTÓN DE INSTALACIÓN ========================= -->
+<!-- ✅ OCULTO COMPLETAMENTE -->
 <div class="install-btn-container" id="installBtn" style="display:none !important;" onclick="installApp()" role="button" tabindex="-1" aria-hidden="true">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
         <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
