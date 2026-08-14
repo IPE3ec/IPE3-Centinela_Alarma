@@ -1,6 +1,5 @@
 // ==========================================
-// app.js - CENTINELA V5.0
-// COMPLETO Y CORREGIDO - VINCULACIÓN POR MAC
+// app.js - CENTINELA V5.0 - VERSIÓN CORREGIDA
 // ==========================================
 
 // ==========================================
@@ -12,46 +11,36 @@ const CONFIG = {
     DEVICE_NAME: 'CENTINELA_BT',
     RECONNECT_INTERVAL: 5000,
     STATUS_INTERVAL: 3000,
-    TIMEOUT_MS: 10000
 };
 
 // ==========================================
 // ESTADO GLOBAL
 // ==========================================
 const state = {
-    // Bluetooth
     device: null,
     characteristic: null,
     isConnected: false,
     isConnecting: false,
-    
-    // Vinculación
     masterMac: '',
     isFirstTime: false,
     isPaired: false,
-    
-    // Vehículo
     isArmed: false,
     isAlarm: false,
     isEngineOn: false,
     lockStatus: 'locked',
     windowPosition: 0,
-    
-    // Sensores
     batteryVoltage: 0,
     motorTemp: 0,
     fuelLevel: 0,
     gpsSignal: 0,
     doorStatus: false,
-    rssi: 0,
-    
-    // Modos
     modoValet: false,
     modoTaller: false,
     modoNinos: true,
-    
-    // Checklist
     pendingAction: null,
+    debug: true,
+    esp32Mac: '',
+    statusInterval: null,
     checklists: {
         start: [
             { id: '1', label: 'Freno de mano activado', checked: false },
@@ -63,15 +52,7 @@ const state = {
             { id: '2', label: 'Freno de mano activado', checked: false },
             { id: '3', label: 'Confirmar apagado', checked: false }
         ]
-    },
-    
-    // Temporizadores
-    statusInterval: null,
-    reconnectTimeout: null,
-    lastActivity: 0,
-    
-    // Debug
-    debug: true
+    }
 };
 
 // ==========================================
@@ -79,11 +60,8 @@ const state = {
 // ==========================================
 document.addEventListener('DOMContentLoaded', () => {
     log('🚀 Inicializando Centinela v5.0');
-    
-    // Cargar configuración guardada
     loadSavedSettings();
     
-    // Verificar Web Bluetooth
     if (!navigator.bluetooth) {
         document.getElementById('bleWarning').hidden = false;
         showToast('❌ Web Bluetooth no está disponible', 'error');
@@ -91,15 +69,9 @@ document.addEventListener('DOMContentLoaded', () => {
         return;
     }
     
-    // Configurar listeners
     setupEventListeners();
-    
-    // Actualizar UI
     updateUI();
-    
-    // Iniciar polling de estado
     startStatusPolling();
-    
     log('✅ App inicializada correctamente');
 });
 
@@ -107,20 +79,16 @@ document.addEventListener('DOMContentLoaded', () => {
 // CARGA DE CONFIGURACIÓN
 // ==========================================
 function loadSavedSettings() {
-    // Nombre del vehículo
     const savedName = localStorage.getItem('centinela_vehicle_name') || 'Mi vehículo';
     document.getElementById('vehicleNameDisplay').textContent = savedName;
     document.getElementById('vehicleNameSetting').textContent = savedName;
     
-    // MAC Master
     state.masterMac = localStorage.getItem('centinela_master_mac') || '';
     state.isPaired = !!state.masterMac;
     
-    // Placa
     const savedPlate = localStorage.getItem('centinela_plate') || 'ABC-1234';
     document.getElementById('vehiclePlate').textContent = savedPlate;
     
-    // Configuración de switches
     const proximity = localStorage.getItem('centinela_proximity') === 'true';
     if (proximity) {
         const el = document.getElementById('switchProximity');
@@ -140,9 +108,6 @@ function loadSavedSettings() {
     log(`🔗 Vinculado: ${state.isPaired ? 'Sí' : 'No'}`);
 }
 
-// ==========================================
-// FUNCIONES DE LOG
-// ==========================================
 function log(message) {
     if (state.debug) {
         console.log(`[Centinela] ${message}`);
@@ -150,7 +115,7 @@ function log(message) {
 }
 
 // ==========================================
-// BLUETOOTH - CONEXIÓN
+// BLUETOOTH - CONEXIÓN (CORREGIDA)
 // ==========================================
 async function connectBLE() {
     if (state.isConnecting) {
@@ -172,19 +137,21 @@ async function connectBLE() {
     updateConnectionUI(false, 'conectando');
 
     try {
-        showToast('🔍 Buscando CENTINELA_BT...', 'info');
+        showToast('🔍 Buscando CENTINELA...', 'info');
         log('🔍 Iniciando búsqueda de dispositivo...');
 
-        // Solicitar dispositivo
+        // ==========================================
+        // 🔥 CAMBIO IMPORTANTE: Usar namePrefix para mayor flexibilidad
+        // ==========================================
         const device = await navigator.bluetooth.requestDevice({
-            filters: [{ name: CONFIG.DEVICE_NAME }],
+            filters: [{ namePrefix: 'CENTINELA' }],  // ← Busca cualquier nombre que empiece con CENTINELA
             optionalServices: [CONFIG.SERVICE_UUID]
         });
 
         log(`📱 Dispositivo encontrado: ${device.name} (${device.id})`);
 
         // Conectar
-        showToast('🔗 Conectando...', 'info');
+        showToast('🔗 Conectando a ' + device.name + '...', 'info');
         const server = await device.gatt.connect();
         const service = await server.getPrimaryService(CONFIG.SERVICE_UUID);
         const characteristic = await service.getCharacteristic(CONFIG.CHARACTERISTIC_UUID);
@@ -199,51 +166,37 @@ async function connectBLE() {
         characteristic.addEventListener('characteristicvaluechanged', handleBLEMessage);
 
         // ==========================================
-        // 🚀 LÓGICA DE VINCULACIÓN
+        // LÓGICA DE VINCULACIÓN
         // ==========================================
         log('🔐 Verificando vinculación...');
         
-        // Primero, enviamos GETMAC para saber si hay MAC guardada en el ESP32
+        // Enviar GETMAC
         await sendCommand('GETMAC');
-        
-        // Esperar respuesta (se maneja en handleBLEMessage)
         await waitForMAC();
 
-        // Verificar si el ESP32 tiene MAC guardada
         if (state.esp32Mac && state.esp32Mac !== '') {
-            // El ESP32 ya tiene una MAC guardada
-            log(`🔒 ESP32 tiene MAC guardada: ${state.esp32Mac}`);
-            
-            // Verificar si coincide con la MAC de este teléfono
             const currentMac = state.device.id;
             if (state.esp32Mac !== currentMac) {
-                // No coincide: este teléfono no está autorizado
                 showToast('❌ Este teléfono no está vinculado al vehículo', 'error');
                 log(`❌ MAC no coincide: ESP32=${state.esp32Mac}, Teléfono=${currentMac}`);
                 await disconnectBLE();
                 state.isConnecting = false;
                 return;
             }
-            
-            // MAC coincide: teléfono autorizado
             log('✅ MAC verificada correctamente');
             state.isPaired = true;
             state.masterMac = state.esp32Mac;
             localStorage.setItem('centinela_master_mac', state.masterMac);
             showToast('✅ Conectado y verificado', 'success');
-            
         } else {
-            // El ESP32 NO tiene MAC guardada → PRIMERA VINCULACIÓN
             log('🆕 Primera vinculación detectada');
             state.isFirstTime = true;
             state.isPaired = false;
             
-            // Guardar la MAC del teléfono actual
             const currentMac = state.device.id;
             state.masterMac = currentMac;
             localStorage.setItem('centinela_master_mac', currentMac);
             
-            // Enviar MAC al ESP32 para que la guarde
             await sendCommand('SETMAC:' + currentMac);
             
             showToast('✅ ¡Primera vinculación exitosa!', 'success');
@@ -251,13 +204,8 @@ async function connectBLE() {
             log(`📱 MAC guardada: ${currentMac}`);
         }
 
-        // Actualizar UI
         updateConnectionUI(true);
-        
-        // Solicitar estado completo
         await sendCommand('STATUS');
-        
-        // Registrar evento
         addEvent('🔗 Conexión Bluetooth establecida', 'ok');
 
     } catch (error) {
@@ -305,7 +253,6 @@ async function disconnectBLE() {
     state.device = null;
     state.characteristic = null;
     
-    // Limpiar intervalos
     if (state.statusInterval) {
         clearInterval(state.statusInterval);
         state.statusInterval = null;
@@ -325,26 +272,17 @@ function handleBLEMessage(event) {
         const message = new TextDecoder().decode(value);
         log(`📨 Recibido: ${message}`);
         
-        // ==========================================
-        // PROCESAR RESPUESTA DE MAC
-        // ==========================================
         if (message.startsWith('MAC:')) {
             const mac = message.substring(4).trim();
             state.esp32Mac = mac;
             log(`🔑 MAC del ESP32: ${mac}`);
-            
-            // Si no hay MAC guardada localmente, guardar
             if (!state.masterMac && mac) {
                 state.masterMac = mac;
                 localStorage.setItem('centinela_master_mac', mac);
-                log(`📱 MAC guardada localmente: ${mac}`);
             }
             return;
         }
         
-        // ==========================================
-        // PROCESAR RESPUESTA DE VINCULACIÓN
-        // ==========================================
         if (message.startsWith('SETMAC_OK')) {
             log('✅ MAC guardada en el ESP32');
             state.isPaired = true;
@@ -353,9 +291,6 @@ function handleBLEMessage(event) {
             return;
         }
         
-        // ==========================================
-        // PROCESAR RESPUESTA DE FORGET_ALL
-        // ==========================================
         if (message.startsWith('FORGET_ALL_OK')) {
             log('🗑️ Todas las MACs borradas');
             state.masterMac = '';
@@ -366,40 +301,22 @@ function handleBLEMessage(event) {
             return;
         }
         
-        // ==========================================
-        // PROCESAR ESTADO DEL SISTEMA
-        // ==========================================
         if (message.startsWith('ESTADO:')) {
             processStatusMessage(message);
             return;
         }
         
-        // ==========================================
-        // PROCESAR CONFIRMACIONES DE COMANDOS
-        // ==========================================
         if (message.endsWith('_OK')) {
             log(`✅ Comando ejecutado: ${message}`);
             return;
         }
         
-        // ==========================================
-        // PROCESAR ERRORES
-        // ==========================================
         if (message.startsWith('ERROR:')) {
             log(`❌ Error: ${message}`);
             showToast(`❌ ${message}`, 'error');
             return;
         }
         
-        // ==========================================
-        // PROCESAR MENSAJE DE AYUDA
-        // ==========================================
-        if (message.includes('COMANDOS DISPONIBLES')) {
-            log('📋 Lista de comandos recibida');
-            return;
-        }
-        
-        // Cualquier otro mensaje
         log(`📨 Mensaje sin procesar: ${message}`);
         
     } catch (error) {
@@ -422,83 +339,25 @@ function processStatusMessage(message) {
         
         log(`📊 Estado recibido: ${JSON.stringify(data)}`);
         
-        // Estado del vehículo
-        if (data.ESTADO) {
-            updateVehicleState(data.ESTADO);
-        }
-        
-        // Voltaje de batería
+        if (data.ESTADO) updateVehicleState(data.ESTADO);
         if (data.VOLT) {
             state.batteryVoltage = parseFloat(data.VOLT);
             document.getElementById('statBattery').textContent = data.VOLT + 'V';
         }
-        
-        // Temperatura del motor
         if (data.TEMP) {
             state.motorTemp = parseFloat(data.TEMP);
             document.getElementById('statMotorTemp').textContent = data.TEMP + '°C';
         }
-        
-        // Estado de puertas
         if (data.PUERTAS) {
             state.doorStatus = data.PUERTAS === '1';
             document.getElementById('doorStatus').textContent = 
                 state.doorStatus ? 'abiertas' : 'cerradas';
         }
-        
-        // Bluetooth
-        if (data.BT) {
-            const connected = data.BT === '1';
-            if (connected !== state.isConnected) {
-                state.isConnected = connected;
-                updateConnectionUI(connected);
-            }
-        }
-        
-        // MAC
         if (data.MAC) {
             state.masterMac = data.MAC;
             localStorage.setItem('centinela_master_mac', data.MAC);
         }
         
-        // Modos
-        if (data.VALET !== undefined) {
-            state.modoValet = data.VALET === '1';
-            const switchValet = document.getElementById('switchValet');
-            if (state.modoValet) {
-                switchValet.classList.add('on');
-                switchValet.setAttribute('aria-checked', 'true');
-            } else {
-                switchValet.classList.remove('on');
-                switchValet.setAttribute('aria-checked', 'false');
-            }
-        }
-        
-        if (data.TALLER !== undefined) {
-            state.modoTaller = data.TALLER === '1';
-            const switchTaller = document.getElementById('switchTaller');
-            if (state.modoTaller) {
-                switchTaller.classList.add('on');
-                switchTaller.setAttribute('aria-checked', 'true');
-            } else {
-                switchTaller.classList.remove('on');
-                switchTaller.setAttribute('aria-checked', 'false');
-            }
-        }
-        
-        if (data.NINOS !== undefined) {
-            state.modoNinos = data.NINOS === '1';
-            const switchNinos = document.getElementById('switchNinos');
-            if (state.modoNinos) {
-                switchNinos.classList.add('on');
-                switchNinos.setAttribute('aria-checked', 'true');
-            } else {
-                switchNinos.classList.remove('on');
-                switchNinos.setAttribute('aria-checked', 'false');
-            }
-        }
-        
-        // Actualizar UI
         updateUI();
         
     } catch (error) {
@@ -520,61 +379,38 @@ function updateVehicleState(estado) {
             shieldLabel.textContent = 'DESARMADO';
             shieldSubState.textContent = 'inactivo';
             break;
-            
         case 'PRESENCIA':
             state.isArmed = false;
             shieldLabel.textContent = 'PRESENCIA';
             shieldSubState.textContent = 'presencia detectada';
             break;
-            
         case 'ACC':
             state.isArmed = true;
             shieldLabel.textContent = 'ACC';
             shieldSubState.textContent = 'accesorios';
             break;
-            
         case 'IGN':
             state.isArmed = true;
             shieldLabel.textContent = 'ENCENDIDO';
             shieldSubState.textContent = 'contacto';
             break;
-            
         case 'ARRANCANDO':
             state.isEngineOn = true;
             shieldLabel.textContent = 'ARRANCANDO';
             shieldSubState.textContent = 'motor encendiendo';
             break;
-            
         case 'ENCENDIDO':
             state.isEngineOn = true;
             state.isArmed = true;
             shieldLabel.textContent = 'ENCENDIDO';
             shieldSubState.textContent = 'motor encendido';
             break;
-            
-        case 'REMOTE':
-            state.isEngineOn = true;
-            shieldLabel.textContent = 'REMOTO';
-            shieldSubState.textContent = 'arranque remoto';
-            break;
-            
-        case 'VALET':
-            shieldLabel.textContent = 'VALET';
-            shieldSubState.textContent = 'modo valet';
-            break;
-            
-        case 'TALLER':
-            shieldLabel.textContent = 'TALLER';
-            shieldSubState.textContent = 'modo taller';
-            break;
-            
         case 'ALARMA!':
             state.isAlarm = true;
             shieldLabel.textContent = '🚨 ALARMA';
             shieldSubState.textContent = '¡ALARMA DISPARADA!';
             showAlarmUI(true);
             break;
-            
         default:
             shieldLabel.textContent = estado || 'DESCONOCIDO';
             shieldSubState.textContent = 'estado desconocido';
@@ -639,21 +475,21 @@ function updateConnectionUI(connected, status = '') {
         text.textContent = 'Conectado';
         keyLinkTitle.textContent = '✅ Conectado a CENTINELA_BT';
         keyLinkSub.textContent = state.isPaired ? 'Vinculado' : 'Primera vinculación';
-        beam.style.background = '#2ECC71';
+        beam.style.opacity = '1';
     } else if (status === 'conectando') {
         dot.className = 'dot';
         dot.style.background = '#F39C12';
         text.textContent = 'Conectando...';
         keyLinkTitle.textContent = '⏳ Conectando...';
         keyLinkSub.textContent = 'Esperando respuesta';
-        beam.style.background = '#F39C12';
+        beam.style.opacity = '0.6';
     } else {
         dot.className = 'dot';
         dot.style.background = '#5A6578';
         text.textContent = 'Sin conexión';
         keyLinkTitle.textContent = '📱 Toca para conectar por Bluetooth';
         keyLinkSub.textContent = state.isPaired ? 'Teléfono vinculado' : 'Primera vinculación';
-        beam.style.background = '#5A6578';
+        beam.style.opacity = '0.35';
     }
 }
 
@@ -697,7 +533,7 @@ function startStatusPolling() {
 }
 
 // ==========================================
-// BOTÓN PRINCIPAL (ARM/DISARM)
+// BOTÓN PRINCIPAL
 // ==========================================
 function toggleArm() {
     if (!state.isConnected) {
@@ -706,7 +542,6 @@ function toggleArm() {
     }
     
     if (state.isAlarm) {
-        // Si hay alarma, detenerla
         sendCommand('STOP');
         state.isAlarm = false;
         showAlarmUI(false);
@@ -754,7 +589,6 @@ function moveWindowsSimple(direction) {
     let current = state.windowPosition;
     const increment = direction === 'up' ? stepSize : -stepSize;
     
-    // Animación de la barra
     const interval = setInterval(() => {
         current += increment;
         if (direction === 'up' && current >= target) {
@@ -770,7 +604,6 @@ function moveWindowsSimple(direction) {
         document.getElementById('windowFill').style.width = current + '%';
     }, 50);
     
-    // Enviar comando al firmware
     sendCommand(`WINDOW:${direction.toUpperCase()}`);
     showToast(`📱 ${direction === 'up' ? 'Subiendo' : 'Bajando'} vidrios...`, 'info');
     addEvent(`📱 ${direction === 'up' ? 'Subir' : 'Bajar'} vidrios`, 'info');
@@ -825,7 +658,7 @@ function sendCmd(cmd, msg) {
 }
 
 // ==========================================
-// CHECKLIST DE ARRANQUE/PARADA
+// CHECKLIST
 // ==========================================
 function openStartChecklist() {
     if (!state.isConnected) {
@@ -950,19 +783,15 @@ function stopAlarmFromUI() {
 // NAVEGACIÓN
 // ==========================================
 function navigateTo(screen) {
-    // Ocultar todas las pantallas
     document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
     
-    // Mostrar la pantalla seleccionada
     const target = document.getElementById(`screen-${screen}`);
     if (target) target.classList.add('active');
     
-    // Actualizar tabs
     document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
     const tab = document.querySelector(`.tab[data-screen="${screen}"]`);
     if (tab) tab.classList.add('active');
     
-    // Si es el mapa, inicializar
     if (screen === 'mapa') {
         initMap();
     }
@@ -981,24 +810,16 @@ function initMap() {
     if (!mapContainer) return;
     
     try {
-        // Coordenadas por defecto (Buenos Aires)
-        const defaultLat = -34.6037;
-        const defaultLng = -58.3816;
-        
-        mapInstance = L.map('map').setView([defaultLat, defaultLng], 13);
+        mapInstance = L.map('map').setView([-34.6037, -58.3816], 13);
         
         L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
             attribution: '© OpenStreetMap'
         }).addTo(mapInstance);
         
-        marker = L.marker([defaultLat, defaultLng]).addTo(mapInstance);
+        marker = L.marker([-34.6037, -58.3816]).addTo(mapInstance);
         mapContainer.classList.remove('loading');
-        
-        log('🗺️ Mapa inicializado');
     } catch (error) {
         log(`❌ Error inicializando mapa: ${error.message}`);
-        mapContainer.classList.remove('loading');
-        mapContainer.innerHTML = '<div style="padding:20px;text-align:center;color:var(--text-dim);">Error al cargar el mapa</div>';
     }
 }
 
@@ -1010,17 +831,14 @@ function showToast(message, type = 'info') {
     toast.textContent = message;
     toast.className = 'toast show';
     
-    // Colores según tipo
     const colors = {
-        error: { border: '#E74C3C', text: '#FF6B6B' },
-        success: { border: '#2ECC71', text: '#6BFFB8' },
-        warning: { border: '#F39C12', text: '#FFD93D' },
-        info: { border: '#3498DB', text: '#6BCBFF' }
+        error: '#E74C3C',
+        success: '#2ECC71',
+        warning: '#F39C12',
+        info: '#3498DB'
     };
-    
-    const color = colors[type] || colors.info;
-    toast.style.borderColor = color.border;
-    toast.style.color = color.text;
+    toast.style.borderColor = colors[type] || colors.info;
+    toast.style.color = '#E8EDF5';
     
     clearTimeout(toast._timeout);
     toast._timeout = setTimeout(() => {
@@ -1035,7 +853,6 @@ function addEvent(text, type = 'info') {
     const feed = document.getElementById('eventFeed');
     const empty = document.getElementById('eventFeedEmpty');
     
-    // Eliminar mensaje de vacío
     if (empty) empty.remove();
     
     const eventDiv = document.createElement('div');
@@ -1058,7 +875,6 @@ function addEvent(text, type = 'info') {
     
     feed.prepend(eventDiv);
     
-    // Limitar a 50 eventos
     while (feed.children.length > 50) {
         feed.removeChild(feed.lastChild);
     }
@@ -1068,15 +884,12 @@ function addEvent(text, type = 'info') {
 // CONFIGURACIÓN
 // ==========================================
 function setupEventListeners() {
-    // Switches táctiles
     document.querySelectorAll('.switch').forEach(sw => {
         sw.addEventListener('click', function(e) {
             e.stopPropagation();
-            // Si tiene onclick, no hacer nada (se maneja en el atributo)
         });
     });
     
-    // Cerrar overlays con ESC
     document.addEventListener('keydown', (e) => {
         if (e.key === 'Escape') {
             document.getElementById('checklistOverlay').hidden = true;
@@ -1184,7 +997,6 @@ function pinPress(num) {
     }
     
     if (pinBuffer.length === 4) {
-        // Verificar PIN (por defecto 1984)
         if (pinBuffer === '1984') {
             document.getElementById('pinError').textContent = '✅ PIN correcto';
             setTimeout(() => {
