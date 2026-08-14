@@ -1,5 +1,5 @@
 // ==========================================
-// app.js - CENTINELA V5.0 - VERSIÓN CORREGIDA
+// app.js - CENTINELA V5.0 - CORREGIDO
 // ==========================================
 
 // ==========================================
@@ -9,7 +9,6 @@ const CONFIG = {
     SERVICE_UUID: '0000ffe0-0000-1000-8000-00805f9b34fb',
     CHARACTERISTIC_UUID: '0000ffe1-0000-1000-8000-00805f9b34fb',
     DEVICE_NAME: 'CENTINELA_BT',
-    RECONNECT_INTERVAL: 5000,
     STATUS_INTERVAL: 3000,
 };
 
@@ -22,7 +21,6 @@ const state = {
     isConnected: false,
     isConnecting: false,
     masterMac: '',
-    isFirstTime: false,
     isPaired: false,
     isArmed: false,
     isAlarm: false,
@@ -31,16 +29,11 @@ const state = {
     windowPosition: 0,
     batteryVoltage: 0,
     motorTemp: 0,
-    fuelLevel: 0,
-    gpsSignal: 0,
     doorStatus: false,
-    modoValet: false,
-    modoTaller: false,
-    modoNinos: true,
-    pendingAction: null,
-    debug: true,
     esp32Mac: '',
     statusInterval: null,
+    debug: true,
+    pendingAction: null,
     checklists: {
         start: [
             { id: '1', label: 'Freno de mano activado', checked: false },
@@ -75,6 +68,12 @@ document.addEventListener('DOMContentLoaded', () => {
     log('✅ App inicializada correctamente');
 });
 
+function log(message) {
+    if (state.debug) {
+        console.log(`[Centinela] ${message}`);
+    }
+}
+
 // ==========================================
 // CARGA DE CONFIGURACIÓN
 // ==========================================
@@ -108,12 +107,6 @@ function loadSavedSettings() {
     log(`🔗 Vinculado: ${state.isPaired ? 'Sí' : 'No'}`);
 }
 
-function log(message) {
-    if (state.debug) {
-        console.log(`[Centinela] ${message}`);
-    }
-}
-
 // ==========================================
 // BLUETOOTH - CONEXIÓN (CORREGIDA)
 // ==========================================
@@ -137,21 +130,50 @@ async function connectBLE() {
     updateConnectionUI(false, 'conectando');
 
     try {
-        showToast('🔍 Buscando CENTINELA...', 'info');
+        showToast('🔍 Buscando CENTINELA_BT...', 'info');
         log('🔍 Iniciando búsqueda de dispositivo...');
 
         // ==========================================
-        // 🔥 CAMBIO IMPORTANTE: Usar namePrefix para mayor flexibilidad
+        // 🔥 MÉTODO 1: Buscar por nombre exacto
         // ==========================================
-        const device = await navigator.bluetooth.requestDevice({
-            filters: [{ namePrefix: 'CENTINELA' }],  // ← Busca cualquier nombre que empiece con CENTINELA
-            optionalServices: [CONFIG.SERVICE_UUID]
-        });
+        let device;
+        try {
+            device = await navigator.bluetooth.requestDevice({
+                filters: [{ name: 'CENTINELA_BT' }],
+                optionalServices: [CONFIG.SERVICE_UUID]
+            });
+        } catch (nameError) {
+            // Si no encuentra por nombre exacto, intentar con prefix
+            log('⚠️ No encontrado por nombre exacto, intentando con prefix...');
+            try {
+                device = await navigator.bluetooth.requestDevice({
+                    filters: [{ namePrefix: 'CENTINELA' }],
+                    optionalServices: [CONFIG.SERVICE_UUID]
+                });
+            } catch (prefixError) {
+                // Si aún no encuentra, mostrar todos los dispositivos
+                log('⚠️ No encontrado por prefix, mostrando todos...');
+                device = await navigator.bluetooth.requestDevice({
+                    acceptAllDevices: true,
+                    optionalServices: [CONFIG.SERVICE_UUID]
+                });
+            }
+        }
 
-        log(`📱 Dispositivo encontrado: ${device.name} (${device.id})`);
+        if (!device) {
+            throw new Error('No se encontró ningún dispositivo');
+        }
+
+        log(`📱 Dispositivo encontrado: ${device.name || 'Sin nombre'} (${device.id})`);
+
+        // Verificar que sea el dispositivo correcto
+        if (device.name && !device.name.includes('CENTINELA')) {
+            showToast(`⚠️ Dispositivo seleccionado: ${device.name}`, 'warning');
+            log(`⚠️ Dispositivo seleccionado no es CENTINELA: ${device.name}`);
+        }
 
         // Conectar
-        showToast('🔗 Conectando a ' + device.name + '...', 'info');
+        showToast('🔗 Conectando a ' + (device.name || 'dispositivo') + '...', 'info');
         const server = await device.gatt.connect();
         const service = await server.getPrimaryService(CONFIG.SERVICE_UUID);
         const characteristic = await service.getCharacteristic(CONFIG.CHARACTERISTIC_UUID);
@@ -165,12 +187,8 @@ async function connectBLE() {
         await characteristic.startNotifications();
         characteristic.addEventListener('characteristicvaluechanged', handleBLEMessage);
 
-        // ==========================================
-        // LÓGICA DE VINCULACIÓN
-        // ==========================================
+        // Lógica de vinculación
         log('🔐 Verificando vinculación...');
-        
-        // Enviar GETMAC
         await sendCommand('GETMAC');
         await waitForMAC();
 
@@ -584,10 +602,8 @@ function moveWindowsSimple(direction) {
     }
     
     const target = direction === 'up' ? 100 : 0;
-    const steps = 10;
-    const stepSize = 10;
     let current = state.windowPosition;
-    const increment = direction === 'up' ? stepSize : -stepSize;
+    const increment = direction === 'up' ? 10 : -10;
     
     const interval = setInterval(() => {
         current += increment;
