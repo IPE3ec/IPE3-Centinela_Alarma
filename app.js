@@ -11,6 +11,8 @@
    ✅ Verificación de soporte Web Bluetooth al inicio
    ✅ Manejo de errores mejorado en BLE
    ✅ Prevención de reconexiones simultáneas
+   ✅ Corregido toggleMode (función incompleta)
+   ✅ Corregido registro de funciones en window
    ========================================================================= */
 
 (() => {
@@ -41,10 +43,10 @@
   let bleServer = null;
   let cmdChar = null;
   let statusChar = null;
-  let bleBusy = false; // evita colisiones al reconectar
+  let bleBusy = false;
 
-  let lastState = null;      // último JSON de estado recibido del ESP32
-  let previousState = null;  // estado anterior, para detectar cambios y generar eventos
+  let lastState = null;
+  let previousState = null;
 
   let checklistMode = null;  // 'start' | 'stop'
   let pinContext = null;     // 'setup' | 'entry' | 'confirm-stop'
@@ -57,10 +59,8 @@
   let mapMarker = null;
   let mapInitialized = false;
 
-  // ✅ NUEVO: Control de proximidad
   let proximityCheckInterval = null;
 
-  // ✅ NUEVO: AudioContext (se inicializa con interacción de usuario)
   let audioCtx = null;
   let audioUnlocked = false;
 
@@ -155,7 +155,6 @@
   // UTILIDADES GENERALES
   // =========================================================================
 
-  // ✅ CORREGIDO: localStorage con manejo de errores
   function safeLocalStorageSet(key, value) {
     try {
       localStorage.setItem(key, value);
@@ -200,7 +199,6 @@
     }
   }
 
-  // ✅ CORREGIDO: AudioContext con inicialización segura
   function ensureAudioCtx() {
     if (!audioCtx) {
       const AC = window.AudioContext || window.webkitAudioContext;
@@ -210,7 +208,6 @@
       }
       audioCtx = new AC();
       
-      // Desbloquear audio en iOS (requiere interacción de usuario)
       if (!audioUnlocked) {
         const unlockAudio = () => {
           if (audioCtx.state === 'suspended') {
@@ -233,7 +230,6 @@
     return audioCtx;
   }
 
-  // Sintetiza un tono simple. type: 'beep' corto, 'confirm' ascendente, 'alarm' descendente/agudo
   function playTone(freqs, durationMs, gainVal = 0.08) {
     if (!soundEnabled()) return;
     const ctx = ensureAudioCtx();
@@ -260,13 +256,11 @@
     }
   }
 
-  // Sonido de arranque de motor: dos tonos ascendentes + vibración corta
   function playEngineStartSound() {
     playTone([220, 330, 440], 130, 0.09);
     vibrate([40, 30, 60]);
   }
 
-  // Sonido de apagado de motor: dos tonos descendentes + vibración larga
   function playEngineStopSound() {
     playTone([440, 330, 220], 150, 0.09);
     vibrate([80, 40, 80]);
@@ -297,17 +291,35 @@
   }
 
   // =========================================================================
-  // ACTIVIDAD RECIENTE (eventos reales derivados del estado del vehículo)
+  // ACTIVIDAD RECIENTE
   // =========================================================================
 
-  // ✅ CORREGIDO: Debounce para evitar eventos duplicados
   let eventDebounceTimer = null;
   let lastEventKey = '';
+
+  const ICONS = {
+    door: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M3 22h18M6 18V9l6-5 6 5v9M9 22V14h6v8"/></svg>',
+    lock: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V7a4 4 0 018 0v4"/></svg>',
+    unlock: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V7a4 4 0 017.6-1.8"/></svg>',
+    light: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="3"/><path d="M12 2v4M12 18v4M4.9 4.9l2.8 2.8M16.3 16.3l2.8 2.8M2 12h4M18 12h4M4.9 19.1l2.8-2.8M16.3 7.7l2.8-2.8"/></svg>',
+    window: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 19V5M6 11l6-6 6 6"/></svg>',
+    shield: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 2l8 3v6c0 5-3.4 8.4-8 11-4.6-2.6-8-6-8-11V5l8-3z"/></svg>',
+    alarm: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 9v4M12 17h.01M10.3 3.9L2.5 17a2 2 0 001.7 3h15.6a2 2 0 001.7-3L13.7 3.9a2 2 0 00-3.4 0z"/></svg>',
+    engine: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M13 2L3 14h7l-1 8 10-12h-7l1-8z"/></svg>',
+    battery: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M13 2L3 14h7l-1 8 10-12h-7l1-8z"/></svg>',
+    info: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M12 8v4M12 16h.01"/></svg>',
+    bluetooth: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="7" y="2" width="10" height="20" rx="2"/><path d="M11 18h2"/></svg>'
+  };
+
+  const LIGHT_LABELS = {
+    LOWBEAM: 'Luces bajas', HIGHBEAM: 'Luces altas', TURN_L: 'Direccional izq.',
+    TURN_R: 'Direccional der.', BRAKE: 'Luz de freno', REVERSE: 'Luz de reversa',
+    FOG: 'Antiniebla', PARK: 'Luces de parqueo'
+  };
 
   function addEvent(title, iconType = 'ok', iconSvg = ICONS.info) {
     if (!el.eventFeed) return;
 
-    // Evitar eventos duplicados inmediatos
     const eventKey = `${title}-${iconType}`;
     if (eventKey === lastEventKey) return;
     lastEventKey = eventKey;
@@ -331,13 +343,11 @@
       </div>`;
     el.eventFeed.prepend(item);
 
-    // Limitar a 12 eventos visibles para no saturar la pantalla
     const items = el.eventFeed.querySelectorAll('.event');
     if (items.length > 12) {
       items[items.length - 1].remove();
     }
 
-    // ✅ NUEVO: Persistir eventos en localStorage (con límite)
     try {
       const savedEvents = JSON.parse(safeLocalStorageGet(LS.events, '[]'));
       savedEvents.unshift({
@@ -345,7 +355,6 @@
         iconType,
         timestamp: Date.now()
       });
-      // Mantener solo los últimos 50 eventos
       const trimmed = savedEvents.slice(0, 50);
       safeLocalStorageSet(LS.events, JSON.stringify(trimmed));
     } catch (e) {
@@ -353,30 +362,8 @@
     }
   }
 
-  const ICONS = {
-    door: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M3 22h18M6 18V9l6-5 6 5v9M9 22V14h6v8"/></svg>',
-    lock: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V7a4 4 0 018 0v4"/></svg>',
-    unlock: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V7a4 4 0 017.6-1.8"/></svg>',
-    light: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="3"/><path d="M12 2v4M12 18v4M4.9 4.9l2.8 2.8M16.3 16.3l2.8 2.8M2 12h4M18 12h4M4.9 19.1l2.8-2.8M16.3 7.7l2.8-2.8"/></svg>',
-    window: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 19V5M6 11l6-6 6 6"/></svg>',
-    shield: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 2l8 3v6c0 5-3.4 8.4-8 11-4.6-2.6-8-6-8-11V5l8-3z"/></svg>',
-    alarm: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 9v4M12 17h.01M10.3 3.9L2.5 17a2 2 0 001.7 3h15.6a2 2 0 001.7-3L13.7 3.9a2 2 0 00-3.4 0z"/></svg>',
-    engine: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M13 2L3 14h7l-1 8 10-12h-7l1-8z"/></svg>',
-    battery: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M13 2L3 14h7l-1 8 10-12h-7l1-8z"/></svg>',
-    info: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M12 8v4M12 16h.01"/></svg>',
-    bluetooth: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="7" y="2" width="10" height="20" rx="2"/><path d="M11 18h2"/></svg>'
-  };
-
-  const LIGHT_LABELS = {
-    LOWBEAM: 'Luces bajas', HIGHBEAM: 'Luces altas', TURN_L: 'Direccional izq.',
-    TURN_R: 'Direccional der.', BRAKE: 'Luz de freno', REVERSE: 'Luz de reversa',
-    FOG: 'Antiniebla', PARK: 'Luces de parqueo'
-  };
-
-  // Compara el estado anterior con el nuevo y registra eventos reales de
-  // puertas, luces, vidrios, seguros, alarma y motor.
   function diffAndLogEvents(prev, next) {
-    if (!prev) return; // primera lectura: no generamos eventos retroactivos
+    if (!prev) return;
 
     if (prev.doorOpen !== next.doorOpen) {
       addEvent(next.doorOpen ? '🚪 Puerta abierta' : '🚪 Puerta cerrada',
@@ -441,7 +428,6 @@
 
     diffAndLogEvents(previousState, state);
 
-    // ---- Tema de alarma (rojo global) + badge ----
     const alarmOn = !!state.alarmTriggered;
     el.app.setAttribute('data-alarm', alarmOn ? 'true' : 'false');
     el.app.setAttribute('data-armed', state.armed ? 'true' : 'false');
@@ -452,19 +438,16 @@
       themeColorMeta.setAttribute('content', alarmOn ? '#150707' : '#0A0D12');
     }
 
-    // ---- Escudo ARM/DISARM ----
     if (el.shieldLabel) el.shieldLabel.textContent = alarmOn ? '¡ALARMA!' : (state.armed ? 'ARMADO' : 'DESARMADO');
     if (el.shieldBtn) el.shieldBtn.setAttribute('aria-pressed', state.armed ? 'true' : 'false');
     if (el.shieldSubState) el.shieldSubState.textContent = alarmOn ? 'en alarma' : (state.armed ? 'activo' : 'inactivo');
     if (el.doorStatus) el.doorStatus.textContent = state.doorOpen ? 'abiertas' : 'cerradas';
 
-    // ---- Estadísticas ----
     if (el.statBattery) el.statBattery.textContent = (typeof state.battery === 'number') ? `${state.battery.toFixed(1)}V` : '—';
     if (el.statMotorTemp) el.statMotorTemp.textContent = state.engine ? 'Encendido' : 'Apagado';
     if (el.statFuel) el.statFuel.textContent = (state.fuel != null) ? `${state.fuel}%` : 'N/D';
     if (el.statGps) el.statGps.textContent = state.gpsSignal || 'Sin señal';
 
-    // ---- Seguros ----
     if (el.lockBtnClosed && el.lockBtnOpen) {
       el.lockBtnClosed.classList.toggle('active', !!state.locked);
       el.lockBtnOpen.classList.toggle('active', !state.locked);
@@ -472,12 +455,10 @@
       el.lockBtnOpen.setAttribute('aria-pressed', !state.locked ? 'true' : 'false');
     }
 
-    // ---- Vidrios simplificados ----
     const avgWindow = Math.round(((state.windowL ?? 0) + (state.windowR ?? 0)) / 2);
     if (el.windowPct) el.windowPct.textContent = `${avgWindow}%`;
     if (el.windowFill) el.windowFill.style.width = `${avgWindow}%`;
     
-    // ✅ Actualizar aria-valuenow del progressbar
     const windowTrack = document.querySelector('.window-simple-track');
     if (windowTrack) {
       windowTrack.setAttribute('aria-valuenow', avgWindow);
@@ -486,7 +467,6 @@
     if (el.windowUpBtn) el.windowUpBtn.disabled = !cmdChar || avgWindow >= 100;
     if (el.windowDownBtn) el.windowDownBtn.disabled = !cmdChar || avgWindow <= 0;
 
-    // ---- Luces ----
     document.querySelectorAll('.light-item').forEach((btn) => {
       const id = btn.dataset.id;
       const isOn = !!(state.lights && state.lights[id]);
@@ -501,13 +481,9 @@
       el.lightFaultBanner.style.display = 'none';
     }
 
-    // ---- Botones de arranque / apagado remoto (bloqueo visual en vivo) ----
     updateEngineButtonsState(state);
-
-    // ---- Mapa ----
     updateMap(state);
 
-    // Si el modal de checklist está abierto, refrescarlo con el estado más reciente
     if (checklistMode && !el.checklistOverlay.hidden) {
       buildChecklist(checklistMode);
     }
@@ -535,7 +511,6 @@
     }
   }
 
-  // ✅ CORREGIDO: Validación de Leaflet y manejo seguro del mapa
   function updateMap(state) {
     if (typeof window.L === 'undefined') {
       console.warn('Leaflet aún no está cargado');
@@ -552,7 +527,6 @@
       const mapAddress = document.getElementById('mapAddress');
       if (mapAddress) mapAddress.textContent = 'Ubicación desconocida';
       
-      // Mantener clase loading si no hay fix
       if (!mapInitialized) {
         mapEl.classList.add('loading');
       }
@@ -561,7 +535,6 @@
 
     try {
       if (!map) {
-        // Remover clase loading antes de inicializar
         mapEl.classList.remove('loading');
         
         map = window.L.map(mapEl, { 
@@ -592,7 +565,6 @@
       if (mapSpeed) mapSpeed.textContent = `${Math.round(state.speedKmh || 0)} km/h`;
       if (mapStatus) mapStatus.textContent = (state.speedKmh || 0) > 2 ? 'en movimiento' : 'estacionado';
       
-      // ✅ NUEVO: Geocodificación inversa simple (placeholder)
       const mapAddress = document.getElementById('mapAddress');
       if (mapAddress) {
         mapAddress.textContent = `${state.lat.toFixed(4)}°, ${state.lng.toFixed(4)}°`;
@@ -604,11 +576,10 @@
   }
 
   // =========================================================================
-  // CONEXIÓN BLUETOOTH (Web Bluetooth API)
+  // CONEXIÓN BLUETOOTH
   // =========================================================================
 
   function setConnectionUI(status) {
-    // status: 'disconnected' | 'connecting' | 'connected'
     el.statusPill.classList.remove('connected', 'connecting');
     el.keyLinkCard.classList.remove('connected');
 
@@ -677,7 +648,6 @@
       statusChar.addEventListener('characteristicvaluechanged', onStatusNotification);
       console.log('✅ Notificaciones activadas');
 
-      // Leer estado inicial
       try {
         const value = await statusChar.readValue();
         handleStatusBytes(value);
@@ -690,7 +660,6 @@
       playConfirmSound();
       addEvent('🔗 Teléfono conectado por Bluetooth', 'ok', ICONS.bluetooth);
       
-      // ✅ NUEVO: Iniciar monitoreo de proximidad si está activado
       if (safeLocalStorageGet(LS.proximity) === 'on') {
         startProximityMonitoring();
       }
@@ -699,7 +668,6 @@
       setConnectionUI('disconnected');
       
       if (err.name === 'NotFoundError') {
-        // Usuario canceló el selector
         console.log('Usuario canceló la selección de dispositivo');
       } else {
         showToast('No se pudo conectar: ' + err.message, 'error');
@@ -719,7 +687,6 @@
     addEvent('🔌 Conexión Bluetooth perdida', 'danger', ICONS.bluetooth);
     updateEngineButtonsState(lastState || {});
     
-    // Detener monitoreo de proximidad
     if (proximityCheckInterval) {
       clearInterval(proximityCheckInterval);
       proximityCheckInterval = null;
@@ -773,9 +740,7 @@
     }
   }
 
-  // ✅ NUEVO: Monitoreo de proximidad RSSI
   function startProximityMonitoring() {
-    // Detener intervalo previo si existe
     if (proximityCheckInterval) {
       clearInterval(proximityCheckInterval);
     }
@@ -789,22 +754,15 @@
         return;
       }
       
-      // ⚠️ NOTA: La Web Bluetooth API no expone RSSI directamente en la mayoría de navegadores
-      // Esta es una implementación simulada. En producción real se necesitaría:
-      // 1. Extensión nativa o
-      // 2. Característica BLE personalizada que reporte RSSI desde el ESP32
-      
       try {
-        // Simulación de lectura RSSI (en implementación real, leer de característica BLE)
-        const simulatedRssi = -50 - Math.floor(Math.random() * 40); // -50 a -90 dBm
+        const simulatedRssi = -50 - Math.floor(Math.random() * 40);
         
         if (el.proximityRssiLabel) {
           el.proximityRssiLabel.textContent = `${simulatedRssi} dBm`;
         }
         
-        // Lógica de auto-arm/disarm basada en sensibilidad
         const sensitivity = parseInt(safeLocalStorageGet(LS.proximitySensitivity, '3'));
-        const thresholds = [-50, -60, -70, -80, -90]; // Muy cerca -> Muy lejos
+        const thresholds = [-50, -60, -70, -80, -90];
         const threshold = thresholds[sensitivity - 1];
         
         const isNear = simulatedRssi >= threshold;
@@ -819,7 +777,7 @@
       } catch (e) {
         console.warn('Error en monitoreo de proximidad:', e);
       }
-    }, 5000); // Cada 5 segundos
+    }, 5000);
   }
 
   // =========================================================================
@@ -854,8 +812,6 @@
       return false;
     }
   }
-  
-  window.sendCmd = sendCmd;
 
   // =========================================================================
   // NAVEGACIÓN ENTRE PANTALLAS
@@ -869,7 +825,6 @@
       t.classList.toggle('active', t.dataset.screen === screenName);
     });
     
-    // ✅ Refrescar mapa al cambiar a esa pantalla
     if (screenName === 'mapa' && map) {
       setTimeout(() => { 
         map.invalidateSize();
@@ -879,8 +834,6 @@
       }, 100);
     }
   }
-  
-  window.navigateTo = navigateTo;
 
   // =========================================================================
   // ARMAR / DESARMAR
@@ -894,14 +847,10 @@
     const willArm = !(lastState?.armed);
     sendCmd(willArm ? 'ARM' : 'DISARM', willArm ? '🛡️ Armando vehículo…' : '🔓 Desarmando vehículo…');
   }
-  
-  window.toggleArm = toggleArm;
 
   function stopAlarmFromUI() {
     sendCmd('STOP_ALARM', '🔕 Deteniendo alarma…');
   }
-  
-  window.stopAlarmFromUI = stopAlarmFromUI;
 
   // =========================================================================
   // SEGUROS
@@ -910,11 +859,9 @@
   function setLock(shouldLock) {
     sendCmd(shouldLock ? 'LOCK' : 'UNLOCK', shouldLock ? '🔒 Cerrando seguros…' : '🔓 Abriendo seguros…');
   }
-  
-  window.setLock = setLock;
 
   // =========================================================================
-  // VIDRIOS (control simplificado Subir / Bajar)
+  // VIDRIOS
   // =========================================================================
 
   async function moveWindowsSimple(direction) {
@@ -922,8 +869,6 @@
     await sendCmd('WIN_L' + suffix, null);
     await sendCmd('WIN_R' + suffix, direction === 'up' ? '🪟 Subiendo vidrios…' : '🪟 Bajando vidrios…');
   }
-  
-  window.moveWindowsSimple = moveWindowsSimple;
 
   // =========================================================================
   // LUCES
@@ -934,8 +879,6 @@
     const label = LIGHT_LABELS[id] || id;
     sendCmd(`LIGHT:${id}:${isOn ? 'OFF' : 'ON'}`, `💡 ${label} ${isOn ? 'apagándose' : 'encendiéndose'}…`);
   }
-  
-  window.toggleLight = toggleLight;
 
   // =========================================================================
   // ENCONTRAR AUTO
@@ -945,11 +888,9 @@
     sendCmd('HORN', '📍 Haciendo sonar la sirena para ubicar el vehículo');
     playTone([500, 900, 500, 900], 150, 0.08);
   }
-  
-  window.findCar = findCar;
 
   // =========================================================================
-  // MALETERO (mantener presionado 3s)
+  // MALETERO
   // =========================================================================
 
   (function setupTrunkHold() {
@@ -1044,8 +985,6 @@
     buildChecklist('start');
     el.checklistOverlay.hidden = false;
   }
-  
-  window.openStartChecklist = openStartChecklist;
 
   function confirmStop() {
     if (!cmdChar) {
@@ -1057,15 +996,11 @@
     buildChecklist('stop');
     el.checklistOverlay.hidden = false;
   }
-  
-  window.confirmStop = confirmStop;
 
   function closeChecklistOverlay() {
     el.checklistOverlay.hidden = true;
     checklistMode = null;
   }
-  
-  window.closeChecklistOverlay = closeChecklistOverlay;
 
   function confirmChecklistAction() {
     if (el.checklistConfirmBtn.disabled) return;
@@ -1077,8 +1012,6 @@
     }
     closeChecklistOverlay();
   }
-  
-  window.confirmChecklistAction = confirmChecklistAction;
 
   // =========================================================================
   // AJUSTES — VEHÍCULO
@@ -1093,8 +1026,6 @@
       showToast('Nombre actualizado', 'success');
     }
   }
-  
-  window.editVehicle = editVehicle;
 
   function editPlate() {
     const current = safeLocalStorageGet(LS.vehiclePlate, 'ABC-1234');
@@ -1105,8 +1036,6 @@
       showToast('Placa actualizada', 'success');
     }
   }
-  
-  window.editPlate = editPlate;
 
   function applyVehicleName() {
     const name = safeLocalStorageGet(LS.vehicleName, 'Mi vehículo');
@@ -1117,7 +1046,7 @@
   }
 
   // =========================================================================
-  // AJUSTES — SEGURIDAD DE ACCESO (biometría / PIN)
+  // AJUSTES — SEGURIDAD DE ACCESO
   // =========================================================================
 
   function toggleBiometric(node) {
@@ -1134,8 +1063,6 @@
     el.bioStatusSub.textContent = enabling ? 'Activado' : 'Usa el lector de tu teléfono';
     showToast(enabling ? '👆 Desbloqueo biométrico activado' : 'Desbloqueo biométrico desactivado', 'success');
   }
-  
-  window.toggleBiometric = toggleBiometric;
 
   function registerBiometric() {
     safeLocalStorageSet(LS.biometric, 'on');
@@ -1146,16 +1073,11 @@
     closeAllAppOverlays();
     showToast('👆 Huella / rostro configurado', 'success');
   }
-  
-  window.registerBiometric = registerBiometric;
 
   function tryBiometricUnlock() {
-    // Sin backend biométrico real disponible aquí: simulamos el desbloqueo.
     closeAllAppOverlays();
     showToast('Desbloqueado', 'success');
   }
-  
-  window.tryBiometricUnlock = tryBiometricUnlock;
 
   function closeAllAppOverlays() {
     el.configOverlay.hidden = true;
@@ -1174,8 +1096,6 @@
     el.pinError.textContent = '';
     el.pinOverlay.hidden = false;
   }
-  
-  window.openPinSetup = openPinSetup;
 
   function openPinEntry() {
     pinContext = 'entry';
@@ -1187,16 +1107,12 @@
     el.lockOverlay.hidden = true;
     el.pinOverlay.hidden = false;
   }
-  
-  window.openPinEntry = openPinEntry;
 
   function closePinOverlay() {
     el.pinOverlay.hidden = true;
     pinBuffer = '';
     pinContext = null;
   }
-  
-  window.closePinOverlay = closePinOverlay;
 
   function renderPinDots() {
     const dots = el.pinDots.querySelectorAll('span');
@@ -1217,13 +1133,10 @@
     pinBuffer += String(digit);
     renderPinDots();
     
-    // Reproducir sonido sutil
     playTone([600], 50, 0.03);
     
     if (pinBuffer.length === 4) setTimeout(() => handlePinComplete(), 120);
   }
-  
-  window.pinPress = pinPress;
 
   function pinBackspace() {
     pinBuffer = pinBuffer.slice(0, -1);
@@ -1231,8 +1144,6 @@
     el.pinError.textContent = '';
     playTone([400], 50, 0.03);
   }
-  
-  window.pinBackspace = pinBackspace;
 
   async function handlePinComplete() {
     if (pinContext === 'setup') {
@@ -1301,16 +1212,12 @@
       showToast('Armado/desarmado automático desactivado', 'success');
     }
   }
-  
-  window.toggleProximity = toggleProximity;
 
   function updateProximityLabel(value) {
     const idx = Math.max(0, Math.min(PROXIMITY_LABELS.length - 1, value - 1));
     el.proximityValLabel.textContent = PROXIMITY_LABELS[idx];
     safeLocalStorageSet(LS.proximitySensitivity, value);
   }
-  
-  window.updateProximityLabel = updateProximityLabel;
 
   function toggleSound(node) {
     const on = node.classList.toggle('on');
@@ -1318,8 +1225,6 @@
     safeLocalStorageSet(LS.soundOn, on ? 'on' : 'off');
     if (on) playConfirmSound();
   }
-  
-  window.toggleSound = toggleSound;
 
   function toggleMode(mode, node) {
     const on = node.classList.toggle('on');
@@ -1335,29 +1240,9 @@
     modes[mode] = on;
     safeLocalStorageSet(LS.modes, JSON.stringify(modes));
     
-    const labels = { valet: 'Modo valet  function toggleMode(mode, node) {
-    const on = node.classList.toggle('on');
-    node.setAttribute('aria-checked', on ? 'true' : 'false');
-    
-    let modes = {};
-    try {
-      modes = JSON.parse(safeLocalStorageGet(LS.modes, '{}'));
-    } catch (e) {
-      console.warn('Error parseando modos:', e);
-    }
-    
-    modes[mode] = on;
-    safeLocalStorageSet(LS.modes, JSON.stringify(modes));
-    
-    const labels = { 
-      valet: 'Modo valet', 
-      taller: 'Modo taller', 
-      ninos: 'Modo niños' 
-    };
+    const labels = { valet: 'Modo valet', taller: 'Modo taller', ninos: 'Modo niños' };
     showToast(`${labels[mode] || mode} ${on ? 'activado' : 'desactivado'}`, 'success');
   }
-  
-  window.toggleMode = toggleMode;
 
   function toggleSensor(sensor, node) {
     const on = node.classList.toggle('on');
@@ -1374,8 +1259,6 @@
     safeLocalStorageSet(LS.sensors, JSON.stringify(sensors));
     showToast(`Sensor ${on ? 'activado' : 'desactivado'}`, 'success');
   }
-  
-  window.toggleSensor = toggleSensor;
 
   // =========================================================================
   // AJUSTES — CUENTA / TELÉFONOS
@@ -1384,21 +1267,15 @@
   function openEmergencyCode() {
     showToast('🔑 Código de emergencia: consulta el manual impreso de tu vehículo', 'info');
   }
-  
-  window.openEmergencyCode = openEmergencyCode;
 
   function pairNewPhone() {
     sendCmd('PAIR_MODE', '📲 Modo de vinculación abierto por 60 segundos');
   }
-  
-  window.pairNewPhone = pairNewPhone;
 
   function forgetPhonesSecure() {
     if (!confirm('¿Olvidar todos los teléfonos vinculados? Deberás volver a vincular tu teléfono.')) return;
     sendCmd('FORGET_PHONES', '🧹 Teléfonos olvidados. Vinculación abierta.');
   }
-  
-  window.forgetPhonesSecure = forgetPhonesSecure;
 
   // =========================================================================
   // INSTALACIÓN PWA
@@ -1429,10 +1306,7 @@
       if (el.installBtn) el.installBtn.style.display = 'none';
     });
   }
-  
-  window.installApp = installApp;
 
-  // ✅ NUEVO: Detectar cuando se instala la PWA
   window.addEventListener('appinstalled', () => {
     console.log('✅ PWA instalada exitosamente');
     showToast('✅ Centinela instalado en tu dispositivo', 'success');
@@ -1446,39 +1320,33 @@
   function restoreSettingsUI() {
     applyVehicleName();
 
-    // Biometría
     if (safeLocalStorageGet(LS.biometric) === 'on' && el.switchBiometric) {
       el.switchBiometric.classList.add('on');
       el.switchBiometric.setAttribute('aria-checked', 'true');
       el.bioStatusSub.textContent = 'Activado';
     }
     
-    // PIN
     if (safeLocalStorageGet(LS.pinHash) && el.pinStatusSub) {
       el.pinStatusSub.textContent = 'Configurado';
     }
     
-    // Proximidad
     if (safeLocalStorageGet(LS.proximity) === 'on' && el.switchProximity) {
       el.switchProximity.classList.add('on');
       el.switchProximity.setAttribute('aria-checked', 'true');
       el.proximityLiveCard.style.display = 'block';
     }
     
-    // Sensibilidad de proximidad
     const sens = safeLocalStorageGet(LS.proximitySensitivity, '3');
     if (el.proximitySlider) {
       el.proximitySlider.value = sens;
       updateProximityLabel(sens);
     }
     
-    // Sonido
     if (safeLocalStorageGet(LS.soundOn, 'on') === 'off' && el.switchSound) {
       el.switchSound.classList.remove('on');
       el.switchSound.setAttribute('aria-checked', 'false');
     }
     
-    // Modos
     let modes = {};
     try {
       modes = JSON.parse(safeLocalStorageGet(LS.modes, '{}'));
@@ -1502,7 +1370,6 @@
       el.switchNinos.setAttribute('aria-checked', 'true');
     }
 
-    // Sensores
     let sensors = {};
     try {
       sensors = JSON.parse(safeLocalStorageGet(LS.sensors, '{}'));
@@ -1537,7 +1404,6 @@
     }
   }
 
-  // ✅ NUEVO: Verificar soporte Web Bluetooth
   function checkBluetoothSupport() {
     if (!navigator.bluetooth) {
       console.error('❌ Web Bluetooth API no soportada');
@@ -1551,7 +1417,6 @@
     return true;
   }
 
-  // ✅ NUEVO: Restaurar eventos guardados
   function restoreSavedEvents() {
     try {
       const savedEvents = JSON.parse(safeLocalStorageGet(LS.events, '[]'));
@@ -1560,7 +1425,6 @@
         el.eventFeedEmpty.remove();
       }
       
-      // Mostrar solo los últimos 10 eventos guardados
       savedEvents.slice(0, 10).forEach((event) => {
         const item = document.createElement('div');
         item.className = 'event';
@@ -1584,25 +1448,21 @@
     }
   }
 
-  // ✅ NUEVO: Manejador de visibilidad de página
   document.addEventListener('visibilitychange', () => {
     if (document.hidden) {
       console.log('📱 App en segundo plano');
-      // Pausar monitoreo de proximidad si está activo
       if (proximityCheckInterval) {
         clearInterval(proximityCheckInterval);
         proximityCheckInterval = null;
       }
     } else {
       console.log('📱 App en primer plano');
-      // Reanudar monitoreo de proximidad si está configurado
       if (safeLocalStorageGet(LS.proximity) === 'on' && cmdChar) {
         startProximityMonitoring();
       }
     }
   });
 
-  // ✅ NUEVO: Manejador de online/offline
   window.addEventListener('online', () => {
     console.log('🌐 Conexión a Internet restaurada');
     showToast('🌐 Conexión restaurada', 'success');
@@ -1613,33 +1473,63 @@
     showToast('📡 Sin conexión a Internet (Bluetooth funciona sin conexión)', 'warn');
   });
 
-  // ✅ NUEVO: Prevenir zoom accidental en iOS
   document.addEventListener('gesturestart', (e) => {
     e.preventDefault();
   });
 
-  // ✅ NUEVO: Manejo de errores globales
   window.addEventListener('error', (event) => {
     console.error('❌ Error global capturado:', event.error);
-    
-    // No mostrar toast para errores de scripts externos
     if (event.filename && !event.filename.includes(window.location.hostname)) {
       return;
     }
-    
     showToast('Ha ocurrido un error inesperado', 'error');
   });
 
   window.addEventListener('unhandledrejection', (event) => {
     console.error('❌ Promise rechazada sin manejar:', event.reason);
-    
-    // Evitar mostrar errores de conexión BLE cancelados por el usuario
     if (event.reason && event.reason.name === 'NotFoundError') {
       return;
     }
-    
     showToast('Error de conexión. Intenta de nuevo.', 'error');
   });
+
+  // =========================================================================
+  // REGISTRO DE FUNCIONES EN WINDOW (para HTML onclick)
+  // =========================================================================
+
+  window.connectBLE = connectBLE;
+  window.navigateTo = navigateTo;
+  window.toggleArm = toggleArm;
+  window.stopAlarmFromUI = stopAlarmFromUI;
+  window.setLock = setLock;
+  window.moveWindowsSimple = moveWindowsSimple;
+  window.toggleLight = toggleLight;
+  window.findCar = findCar;
+  window.openStartChecklist = openStartChecklist;
+  window.confirmStop = confirmStop;
+  window.closeChecklistOverlay = closeChecklistOverlay;
+  window.confirmChecklistAction = confirmChecklistAction;
+  window.editVehicle = editVehicle;
+  window.editPlate = editPlate;
+  window.toggleBiometric = toggleBiometric;
+  window.registerBiometric = registerBiometric;
+  window.tryBiometricUnlock = tryBiometricUnlock;
+  window.openPinSetup = openPinSetup;
+  window.openPinEntry = openPinEntry;
+  window.closePinOverlay = closePinOverlay;
+  window.pinPress = pinPress;
+  window.pinBackspace = pinBackspace;
+  window.toggleProximity = toggleProximity;
+  window.updateProximityLabel = updateProximityLabel;
+  window.toggleSound = toggleSound;
+  window.toggleMode = toggleMode;
+  window.toggleSensor = toggleSensor;
+  window.openEmergencyCode = openEmergencyCode;
+  window.pairNewPhone = pairNewPhone;
+  window.forgetPhonesSecure = forgetPhonesSecure;
+  window.installApp = installApp;
+  window.sendCmd = sendCmd;
+  window.showToast = showToast;
 
   // =========================================================================
   // INICIALIZACIÓN PRINCIPAL
@@ -1648,28 +1538,17 @@
   document.addEventListener('DOMContentLoaded', () => {
     console.log('🚗 CENTINELA v5.0 - Inicializando...');
     
-    // Verificar soporte de Web Bluetooth
     checkBluetoothSupport();
-    
-    // Restaurar configuración guardada
     restoreSettingsUI();
-    
-    // Restaurar eventos guardados
     restoreSavedEvents();
-    
-    // Verificar si hay método de seguridad configurado
     checkInitialSecuritySetup();
-    
-    // Actualizar estado de botones de motor
     updateEngineButtonsState({});
 
-    // Registrar Service Worker para PWA
     if ('serviceWorker' in navigator) {
       navigator.serviceWorker.register('./sw.js')
         .then((registration) => {
           console.log('✅ Service Worker registrado:', registration.scope);
           
-          // Actualizar SW si hay nueva versión
           registration.addEventListener('updatefound', () => {
             const newWorker = registration.installing;
             console.log('🔄 Nueva versión del Service Worker detectada');
@@ -1686,7 +1565,6 @@
         });
     }
 
-    // ✅ NUEVO: Inicializar audio desbloqueado con primer toque
     const unlockAudio = () => {
       ensureAudioCtx();
       document.removeEventListener('touchstart', unlockAudio);
@@ -1695,7 +1573,6 @@
     document.addEventListener('touchstart', unlockAudio, { once: true });
     document.addEventListener('click', unlockAudio, { once: true });
 
-    // ✅ NUEVO: Ocultar splash screen si existe
     const splash = document.getElementById('splash');
     if (splash) {
       setTimeout(() => {
@@ -1706,7 +1583,6 @@
 
     console.log('✅ Centinela v5.0 inicializado correctamente');
     
-    // ✅ NUEVO: Evento personalizado para extensiones/debugging
     window.dispatchEvent(new CustomEvent('centinela:ready', {
       detail: {
         version: '5.0',
@@ -1716,30 +1592,26 @@
   });
 
   // =========================================================================
-  // ATAJOS DE TECLADO (para debugging en desktop)
+  // ATAJOS DE TECLADO
   // =========================================================================
 
   if (window.innerWidth > 768) {
     document.addEventListener('keydown', (e) => {
-      // Ctrl+B: Conectar Bluetooth
       if (e.ctrlKey && e.key === 'b') {
         e.preventDefault();
         connectBLE();
       }
       
-      // Ctrl+A: Toggle ARM
       if (e.ctrlKey && e.key === 'a') {
         e.preventDefault();
         toggleArm();
       }
       
-      // Ctrl+L: Toggle Lock
       if (e.ctrlKey && e.key === 'l') {
         e.preventDefault();
         setLock(!lastState?.locked);
       }
       
-      // ESC: Cerrar overlays
       if (e.key === 'Escape') {
         closeAllAppOverlays();
         closeChecklistOverlay();
@@ -1751,7 +1623,7 @@
   }
 
   // =========================================================================
-  // MODO DEBUG (solo en desarrollo)
+  // MODO DEBUG
   // =========================================================================
 
   if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
