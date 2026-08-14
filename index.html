@@ -15,7 +15,7 @@
     <!-- PWA -->
     <link rel="manifest" href="./manifest.json">
 
-    <!-- Leaflet para el mapa (con defer para garantizar carga) -->
+    <!-- Leaflet para el mapa -->
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" defer></script>
 
@@ -26,6 +26,38 @@
 
     <!-- Estilos -->
     <link rel="stylesheet" href="./styles.css">
+
+    <style>
+        /* Estilos críticos para evitar FOUC */
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        body {
+            background: #0A0D12;
+            color: #E8EDF5;
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+            -webkit-font-smoothing: antialiased;
+            -moz-osx-font-smoothing: grayscale;
+            overflow: hidden;
+            height: 100vh;
+            width: 100vw;
+            position: fixed;
+            user-select: none;
+            -webkit-user-select: none;
+        }
+        .app {
+            display: flex;
+            flex-direction: column;
+            height: 100vh;
+            max-width: 480px;
+            margin: 0 auto;
+            position: relative;
+            background: #0A0D12;
+            overflow: hidden;
+        }
+    </style>
 </head>
 <body>
 
@@ -57,7 +89,6 @@
         </div>
 
         <div class="statusbar-right">
-            <!-- Badge de alarma: solo visible cuando alarmTriggered = true -->
             <button class="alarm-badge" id="alarmBadge" hidden onclick="stopAlarmFromUI()" aria-label="Detener alarma">
                 <span class="alarm-badge-dot"></span>
                 <span id="alarmBadgeText">ALARMA</span>
@@ -266,7 +297,7 @@
                 </button>
             </div>
 
-            <!-- VIDRIOS (simplificado: solo Subir / Bajar, sin distinción delantero/trasero) -->
+            <!-- VIDRIOS -->
             <div class="section-head"><h2>Vidrios</h2></div>
             <div class="window-simple">
                 <div class="window-simple-top">
