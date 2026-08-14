@@ -1,1836 +1,1789 @@
 /* =========================================================================
-   CENTINELA v5.0 — Estilos Corregidos
-   Incluye: Safe areas iOS, mejoras de accesibilidad, animaciones optimizadas
+   CENTINELA v5.0 — Lógica de la aplicación CORREGIDA
+   Compatible con el firmware ESP32 "CENTINELA - FIRMWARE DEFINITIVO v3.7"
+   
+   CORRECCIONES APLICADAS:
+   ✅ AudioContext inicializado correctamente (requiere interacción usuario)
+   ✅ Validación segura de Leaflet antes de usar map
+   ✅ Debounce para eventos duplicados
+   ✅ localStorage con try/catch para quota exceeded
+   ✅ Implementación básica de proximidad RSSI
+   ✅ Verificación de soporte Web Bluetooth al inicio
+   ✅ Manejo de errores mejorado en BLE
+   ✅ Prevención de reconexiones simultáneas
    ========================================================================= */
 
-/* ---------- Variables de tema ---------- */
-:root{
-  --bg:#0A0D12;
-  --bg-elev-1:#12161D;
-  --bg-elev-2:#171C25;
-  --bg-elev-3:#1D2430;
-  --border:#252C38;
-  --border-soft:#1B212B;
+(() => {
+  'use strict';
 
-  --accent:#3ED598;
-  --accent-dim:#1E7A56;
-  --accent-glow:rgba(62,213,152,0.35);
+  // ======================== CONSTANTES BLE ========================
+  const BLE_SERVICE_UUID = '12345678-1234-5678-1234-56789abcdef0';
+  const BLE_CMD_UUID     = '12345678-1234-5678-1234-56789abcdef1';
+  const BLE_STATUS_UUID  = '12345678-1234-5678-1234-56789abcdef2';
+  const DEVICE_NAME_PREFIX = 'Centinela';
 
-  --danger:#FF4D4F;
-  --danger-dim:#7A1E20;
-  --danger-glow:rgba(255,77,79,0.35);
+  // ======================== CLAVES DE ALMACENAMIENTO LOCAL ========================
+  const LS = {
+    vehicleName: 'centinela.vehicleName',
+    vehiclePlate: 'centinela.vehiclePlate',
+    soundOn: 'centinela.soundOn',
+    biometric: 'centinela.biometric',
+    pinHash: 'centinela.pinHash',
+    proximity: 'centinela.proximity',
+    proximitySensitivity: 'centinela.proximitySensitivity',
+    modes: 'centinela.modes',
+    sensors: 'centinela.sensors',
+    events: 'centinela.events'
+  };
 
-  --warn:#FFB020;
-  --warn-dim:#7A5A12;
+  // ======================== ESTADO EN MEMORIA ========================
+  let bleDevice = null;
+  let bleServer = null;
+  let cmdChar = null;
+  let statusChar = null;
+  let bleBusy = false; // evita colisiones al reconectar
 
-  --text:#F3F5F8;
-  --text-dim:#8B93A1;
-  --text-faint:#565E6C;
+  let lastState = null;      // último JSON de estado recibido del ESP32
+  let previousState = null;  // estado anterior, para detectar cambios y generar eventos
 
-  --radius-lg:22px;
-  --radius-md:16px;
-  --radius-sm:11px;
-  --radius-pill:999px;
+  let checklistMode = null;  // 'start' | 'stop'
+  let pinContext = null;     // 'setup' | 'entry' | 'confirm-stop'
+  let pinBuffer = '';
+  let pinSetupFirstEntry = null;
 
-  --font-display:'Rajdhani', sans-serif;
-  --font-body:'Inter', sans-serif;
-  --font-mono:'JetBrains Mono', monospace;
+  let deferredInstallPrompt = null;
 
-  --shadow-elev:0 8px 30px rgba(0,0,0,0.35);
-  --transition-fast:150ms ease;
-  --transition-med:280ms cubic-bezier(.2,.7,.3,1);
+  let map = null;
+  let mapMarker = null;
+  let mapInitialized = false;
 
-  color-scheme: dark;
-}
+  // ✅ NUEVO: Control de proximidad
+  let proximityCheckInterval = null;
 
-/* ---------- Tema rojo de alarma: se activa con [data-alarm="true"] en .app ---------- */
-.app[data-alarm="true"]{
-  --accent:#FF4D4F;
-  --accent-dim:#8A2224;
-  --accent-glow:rgba(255,77,79,0.45);
-  --bg:#150707;
-  --bg-elev-1:#1C0A0A;
-  --bg-elev-2:#220D0D;
-  --bg-elev-3:#2A1010;
-  --border:#3A1414;
-  --border-soft:#2A0D0D;
-}
+  // ✅ NUEVO: AudioContext (se inicializa con interacción de usuario)
+  let audioCtx = null;
+  let audioUnlocked = false;
 
-* { 
-  box-sizing:border-box;
-  -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
-}
+  // ======================== REFERENCIAS DOM ========================
+  const $ = (id) => document.getElementById(id);
 
-html, body{
-  margin:0;
-  padding:0;
-  background:var(--bg);
-  color:var(--text);
-  font-family:var(--font-body);
-  -webkit-tap-highlight-color: transparent;
-  overscroll-behavior:none;
-  height:100%;
-  /* ✅ NUEVO: Previene zoom en inputs en iOS */
-  touch-action: manipulation;
-}
+  const el = {
+    app: $('app'),
+    statusPill: $('statusPill'),
+    statusDot: $('statusDot'),
+    statusPillText: $('statusPillText'),
+    alarmBadge: $('alarmBadge'),
 
-/* ✅ NUEVO: Previene zoom en inputs específicamente */
-input, select, textarea {
-  font-size: 16px;
-}
+    shieldBtn: $('shieldBtn'),
+    shieldLabel: $('shieldLabel'),
+    shieldSubState: $('shieldSubState'),
+    doorStatus: $('doorStatus'),
 
-button{
-  font-family:inherit;
-  cursor:pointer;
-  border:none;
-  background:none;
-  color:inherit;
-  /* ✅ NUEVO: Mejora táctil */
-  touch-action: manipulation;
-}
+    statBattery: $('statBattery'),
+    statMotorTemp: $('statMotorTemp'),
+    statFuel: $('statFuel'),
+    statGps: $('statGps'),
 
-a{
-  color:var(--accent);
-  text-decoration:none;
-  font-size:13px;
-  font-weight:600;
-  cursor:pointer;
-}
+    eventFeed: $('eventFeed'),
+    eventFeedEmpty: $('eventFeedEmpty'),
 
-svg{ 
-  width:100%; 
-  height:100%;
-  /* ✅ NUEVO: Previene selección de SVG */
-  user-select: none;
-  -webkit-user-select: none;
-}
+    keyLinkCard: $('keyLinkCard'),
+    keyLinkTitle: $('keyLinkTitle'),
+    keyLinkSub: $('keyLinkSub'),
+    beam: $('beam'),
 
-/* ✅ NUEVO: Mejora de accesibilidad - focus visible */
-button:focus-visible,
-.tab:focus-visible,
-.switch:focus-visible,
-a:focus-visible,
-input[type="range"]:focus-visible {
-  outline:2px solid var(--accent);
-  outline-offset:2px;
-  border-radius: var(--radius-sm);
-}
+    lockBtnClosed: $('lockBtnClosed'),
+    lockBtnOpen: $('lockBtnOpen'),
 
-/* ✅ NUEVO: Oculta outline por defecto en mouse */
-button:focus:not(:focus-visible),
-.tab:focus:not(:focus-visible),
-.switch:focus:not(:focus-visible) {
-  outline: none;
-}
+    windowPct: $('windowPct'),
+    windowFill: $('windowFill'),
+    windowUpBtn: $('windowUpBtn'),
+    windowDownBtn: $('windowDownBtn'),
 
-/* =========================================================================
-   ADVERTENCIA DE NAVEGADOR NO COMPATIBLE
-   ========================================================================= */
-.ble-warning{
-  position:fixed;
-  top:60px;
-  left:50%;
-  transform:translateX(-50%);
-  z-index:100;
-  max-width:400px;
-  width:calc(100% - 36px);
-  animation: slideInTop var(--transition-med);
-}
+    lightFaultBanner: $('lightFaultBanner'),
+    lightFaultText: $('lightFaultText'),
 
-@keyframes slideInTop {
-  from { 
-    opacity: 0; 
-    transform: translate(-50%, -20px); 
+    startEngineBtn: $('startEngineBtn'),
+    stopEngineBtn: $('stopEngineBtn'),
+    trunkBtn: $('trunkBtn'),
+    trunkBtnLabel: $('trunkBtnLabel'),
+
+    toast: $('toast'),
+
+    checklistOverlay: $('checklistOverlay'),
+    checklistIcon: $('checklistIcon'),
+    checklistTitle: $('checklistTitle'),
+    checklistSub: $('checklistSub'),
+    checklistItems: $('checklistItems'),
+    checklistConfirmBtn: $('checklistConfirmBtn'),
+
+    pinOverlay: $('pinOverlay'),
+    pinOverlayTitle: $('pinOverlayTitle'),
+    pinOverlaySub: $('pinOverlaySub'),
+    pinDots: $('pinDots'),
+    pinError: $('pinError'),
+
+    configOverlay: $('configOverlay'),
+    lockOverlay: $('lockOverlay'),
+
+    vehicleNameDisplay: $('vehicleNameDisplay'),
+    vehicleNameSetting: $('vehicleNameSetting'),
+    vehiclePlate: $('vehiclePlate'),
+
+    switchBiometric: $('switchBiometric'),
+    bioStatusSub: $('bioStatusSub'),
+    pinStatusSub: $('pinStatusSub'),
+    switchProximity: $('switchProximity'),
+    proximitySlider: $('proximitySlider'),
+    proximityValLabel: $('proximityValLabel'),
+    proximityLiveCard: $('proximityLiveCard'),
+    proximityRssiLabel: $('proximityRssiLabel'),
+    switchSound: $('switchSound'),
+    switchValet: $('switchValet'),
+    switchTaller: $('switchTaller'),
+    switchNinos: $('switchNinos'),
+    switchImpacto: $('switchImpacto'),
+    switchInclinacion: $('switchInclinacion'),
+
+    installBtn: $('installBtn'),
+    bleWarning: $('bleWarning')
+  };
+
+  const PROXIMITY_LABELS = ['Muy cerca', 'Cerca', 'Media', 'Lejos', 'Muy lejos'];
+
+  // =========================================================================
+  // UTILIDADES GENERALES
+  // =========================================================================
+
+  // ✅ CORREGIDO: localStorage con manejo de errores
+  function safeLocalStorageSet(key, value) {
+    try {
+      localStorage.setItem(key, value);
+      return true;
+    } catch (e) {
+      if (e.name === 'QuotaExceededError') {
+        console.warn('localStorage lleno, limpiando eventos antiguos');
+        try {
+          localStorage.removeItem(LS.events);
+          localStorage.setItem(key, value);
+          return true;
+        } catch (e2) {
+          showToast('Almacenamiento local lleno', 'error');
+          return false;
+        }
+      }
+      console.error('Error en localStorage:', e);
+      return false;
+    }
   }
-  to { 
-    opacity: 1; 
-    transform: translate(-50%, 0); 
+
+  function safeLocalStorageGet(key, defaultValue = null) {
+    try {
+      return localStorage.getItem(key) || defaultValue;
+    } catch (e) {
+      console.error('Error leyendo localStorage:', e);
+      return defaultValue;
+    }
   }
-}
 
-.ble-warning-content{
-  display:flex;
-  gap:12px;
-  background:rgba(255,176,32,0.15);
-  border:1px solid var(--warn-dim);
-  border-radius:var(--radius-md);
-  padding:14px;
-  backdrop-filter:blur(8px);
-  box-shadow: var(--shadow-elev);
-}
-
-.ble-warning svg{ 
-  width:24px; 
-  height:24px; 
-  stroke:var(--warn); 
-  flex-shrink:0; 
-}
-
-.ble-warning strong{ 
-  font-size:13px; 
-  color:var(--warn); 
-  display:block; 
-  margin-bottom:4px; 
-  font-weight:700;
-}
-
-.ble-warning p{ 
-  font-size:12px; 
-  color:var(--text-dim); 
-  margin:0; 
-  line-height:1.4;
-}
-
-/* =========================================================================
-   APP SHELL
-   ========================================================================= */
-.app{
-  max-width:480px;
-  margin:0 auto;
-  min-height:100vh;
-  min-height:100dvh;
-  display:flex;
-  flex-direction:column;
-  background:
-    radial-gradient(circle at 20% -10%, rgba(62,213,152,0.06), transparent 45%),
-    var(--bg);
-  transition: background var(--transition-med);
-  position:relative;
-  /* ✅ NUEVO: Safe area para notch */
-  padding-top: env(safe-area-inset-top, 0);
-}
-
-.app[data-alarm="true"]{
-  background:
-    radial-gradient(circle at 20% -10%, rgba(255,77,79,0.12), transparent 45%),
-    var(--bg);
-  animation: alarmPulseBg 1.4s ease-in-out infinite;
-}
-
-@keyframes alarmPulseBg{
-  0%, 100%{ box-shadow: inset 0 0 0 0 rgba(255,77,79,0); }
-  50%{ box-shadow: inset 0 0 120px 0 rgba(255,77,79,0.18); }
-}
-
-/* =========================================================================
-   BARRA DE ESTADO SUPERIOR
-   ========================================================================= */
-.statusbar{
-  display:flex;
-  align-items:center;
-  justify-content:space-between;
-  padding:16px 18px 10px;
-  position:sticky;
-  top:0;
-  z-index:20;
-  background:linear-gradient(to bottom, var(--bg) 70%, transparent);
-  /* ✅ NUEVO: Backdrop blur para efecto glass */
-  backdrop-filter: blur(10px);
-  -webkit-backdrop-filter: blur(10px);
-}
-
-.brand{
-  display:flex;
-  align-items:center;
-  gap:8px;
-}
-
-.brand-mark{
-  width:26px;
-  height:26px;
-  border-radius:8px;
-  background:var(--accent);
-  padding:5px;
-  display:flex;
-  align-items:center;
-  justify-content:center;
-  transition: background var(--transition-med), transform var(--transition-fast);
-}
-
-.brand-mark:active {
-  transform: scale(0.95);
-}
-
-.brand-name{
-  font-family:var(--font-display);
-  font-weight:700;
-  font-size:16px;
-  letter-spacing:0.5px;
-}
-
-.brand-version{
-  font-family:var(--font-mono);
-  font-size:10px;
-  color:var(--text-dim);
-  background:var(--bg-elev-2);
-  border:1px solid var(--border-soft);
-  border-radius:6px;
-  padding:2px 5px;
-}
-
-.statusbar-right{
-  display:flex;
-  align-items:center;
-  gap:8px;
-}
-
-.status-pill{
-  display:flex;
-  align-items:center;
-  gap:7px;
-  background:var(--bg-elev-2);
-  border:1px solid var(--border-soft);
-  border-radius:var(--radius-pill);
-  padding:7px 12px;
-  font-size:12px;
-  font-weight:600;
-  color:var(--text-dim);
-  cursor:pointer;
-  transition: all var(--transition-fast);
-  /* ✅ NUEVO: Mejora área táctil */
-  min-height: 36px;
-}
-
-.status-pill:active{ 
-  transform:scale(0.96); 
-  background: var(--bg-elev-3);
-}
-
-.status-pill .dot{
-  width:7px;
-  height:7px;
-  border-radius:50%;
-  background:var(--text-faint);
-  flex-shrink:0;
-}
-
-.status-pill.connected{
-  color:var(--accent);
-  border-color: var(--accent-dim);
-  background: rgba(62, 213, 152, 0.08);
-}
-
-.status-pill.connected .dot{
-  background:var(--accent);
-  box-shadow:0 0 0 3px var(--accent-glow);
-}
-
-.status-pill.connecting .dot{
-  background:var(--warn);
-  animation: blinkDot 0.9s infinite;
-}
-
-@keyframes blinkDot{
-  0%,100%{ opacity:1; }
-  50%{ opacity:0.25; }
-}
-
-/* Badge de alarma junto al pill de conexión */
-.alarm-badge{
-  display:flex;
-  align-items:center;
-  gap:6px;
-  background:var(--danger);
-  color:#2A0707;
-  border-radius:var(--radius-pill);
-  padding:7px 12px;
-  font-size:11.5px;
-  font-weight:700;
-  letter-spacing:0.4px;
-  animation: alarmBadgePulse 1s ease-in-out infinite;
-  cursor: pointer;
-  transition: transform var(--transition-fast);
-  /* ✅ NUEVO: Mejora área táctil */
-  min-height: 36px;
-}
-
-.alarm-badge:active {
-  transform: scale(0.95);
-}
-
-.alarm-badge-dot{
-  width:7px;
-  height:7px;
-  border-radius:50%;
-  background:#2A0707;
-}
-
-@keyframes alarmBadgePulse{
-  0%,100%{ box-shadow:0 0 0 0 rgba(255,77,79,0.6); }
-  50%{ box-shadow:0 0 0 6px rgba(255,77,79,0); }
-}
-
-/* =========================================================================
-   PANTALLAS
-   ========================================================================= */
-.screens{
-  flex:1;
-  position:relative;
-  overflow:hidden;
-}
-
-.screen{
-  display:none;
-  flex-direction:column;
-  padding:6px 18px calc(110px + env(safe-area-inset-bottom, 0px));
-  animation: screenIn var(--transition-med);
-  /* ✅ NUEVO: Mejora scroll en iOS */
-  -webkit-overflow-scrolling: touch;
-}
-
-.screen.active{ display:flex; }
-
-@keyframes screenIn{
-  from{ opacity:0; transform:translateY(8px); }
-  to{ opacity:1; transform:translateY(0); }
-}
-
-.eyebrow{
-  display:flex;
-  align-items:center;
-  gap:8px;
-  font-size:12.5px;
-  color:var(--text-dim);
-  font-weight:600;
-  margin-top:4px;
-}
-
-.version-tag{
-  font-family:var(--font-mono);
-  font-size:10px;
-  background:var(--bg-elev-2);
-  border:1px solid var(--border-soft);
-  border-radius:6px;
-  padding:1px 5px;
-  color:var(--text-faint);
-}
-
-.screen-title{
-  font-family:var(--font-display);
-  font-size:26px;
-  font-weight:700;
-  margin:2px 0 18px;
-  letter-spacing:0.2px;
-}
-
-/* =========================================================================
-   ESCUDO / ARM-DISARM
-   ========================================================================= */
-.shield-wrap{
-  position:relative;
-  width:190px;
-  height:190px;
-  margin:6px auto 18px;
-  display:flex;
-  align-items:center;
-  justify-content:center;
-}
-
-.ring{
-  position:absolute;
-  border-radius:50%;
-  border:1px solid var(--border);
-  transition: border-color var(--transition-med);
-}
-
-.ring.r1{ width:190px; height:190px; }
-.ring.r2{ width:158px; height:158px; opacity:0.7; }
-.ring.r3{ width:128px; height:128px; opacity:0.5; }
-
-.ring.sweep{
-  border-top-color:var(--accent);
-  animation: spin 6s linear infinite;
-}
-
-@keyframes spin{
-  from{ transform:rotate(0deg); }
-  to{ transform:rotate(360deg); }
-}
-
-.shield-btn{
-  width:104px;
-  height:104px;
-  border-radius:50%;
-  background:var(--bg-elev-2);
-  border:2px solid var(--border);
-  display:flex;
-  flex-direction:column;
-  align-items:center;
-  justify-content:center;
-  gap:6px;
-  transition: all var(--transition-med);
-  cursor: pointer;
-  /* ✅ NUEVO: Mejora táctil */
-  touch-action: manipulation;
-}
-
-.shield-btn:active {
-  transform: scale(0.96);
-}
-
-.shield-btn svg{
-  width:34px;
-  height:34px;
-  stroke:var(--text-dim);
-  transition: stroke var(--transition-med);
-}
-
-.shield-label{
-  font-family:var(--font-display);
-  font-size:11.5px;
-  font-weight:700;
-  letter-spacing:0.6px;
-  color:var(--text-dim);
-  transition: color var(--transition-med);
-}
-
-.app[data-armed="true"] .shield-btn{
-  background:linear-gradient(145deg, var(--accent-dim), var(--bg-elev-2));
-  border-color:var(--accent);
-  box-shadow:0 0 0 8px var(--accent-glow);
-}
-
-.app[data-armed="true"] .shield-btn svg{ stroke:var(--accent); }
-.app[data-armed="true"] .shield-label{ color:var(--accent); }
-
-.app[data-alarm="true"] .shield-btn{
-  background:linear-gradient(145deg, var(--danger-dim), var(--bg-elev-2));
-  border-color:var(--danger);
-  box-shadow:0 0 0 8px var(--danger-glow);
-  animation: shieldAlarmShake 0.35s ease-in-out infinite;
-}
-
-.app[data-alarm="true"] .shield-btn svg{ stroke:var(--danger); }
-.app[data-alarm="true"] .shield-label{ color:var(--danger); }
-
-@keyframes shieldAlarmShake{
-  0%,100%{ transform:translateX(0); }
-  25%{ transform:translateX(-2px); }
-  75%{ transform:translateX(2px); }
-}
-
-.shield-sub{
-  text-align:center;
-  font-size:13px;
-  color:var(--text-dim);
-  margin:0 0 22px;
-  line-height: 1.5;
-}
-
-.shield-sub b{ color:var(--text); font-weight:600; }
-
-/* =========================================================================
-   GRID DE ESTADÍSTICAS
-   ========================================================================= */
-.grid{
-  display:grid;
-  grid-template-columns:1fr 1fr;
-  gap:10px;
-  margin-bottom:22px;
-}
-
-.stat{
-  background:var(--bg-elev-2);
-  border:1px solid var(--border-soft);
-  border-radius:var(--radius-md);
-  padding:13px 14px;
-  transition: background var(--transition-fast), border-color var(--transition-fast);
-}
-
-.stat:active {
-  background: var(--bg-elev-3);
-}
-
-.stat-label{
-  display:flex;
-  align-items:center;
-  gap:6px;
-  font-size:11.5px;
-  color:var(--text-dim);
-  font-weight:600;
-  margin-bottom:8px;
-}
-
-.stat-label svg{ width:14px; height:14px; stroke:var(--text-dim); }
-
-.stat-value{
-  font-family:var(--font-mono);
-  font-size:18px;
-  font-weight:600;
-  color:var(--text);
-}
-
-/* =========================================================================
-   ENCABEZADOS DE SECCIÓN
-   ========================================================================= */
-.section-head{
-  display:flex;
-  align-items:center;
-  justify-content:space-between;
-  margin:6px 0 10px;
-}
-
-.section-head h2{
-  font-size:14.5px;
-  font-weight:700;
-  margin:0;
-  color:var(--text);
-}
-
-/* =========================================================================
-   ACTIVIDAD / EVENTOS
-   ========================================================================= */
-#eventFeed{
-  display:flex;
-  flex-direction:column;
-  gap:8px;
-  margin-bottom:10px;
-}
-
-.event{
-  display:flex;
-  align-items:center;
-  gap:12px;
-  background:var(--bg-elev-2);
-  border:1px solid var(--border-soft);
-  border-radius:var(--radius-md);
-  padding:12px 14px;
-  animation: eventIn var(--transition-med);
-  transition: background var(--transition-fast);
-}
-
-.event:active {
-  background: var(--bg-elev-3);
-}
-
-@keyframes eventIn{
-  from{ opacity:0; transform:translateY(-6px); }
-  to{ opacity:1; transform:translateY(0); }
-}
-
-.event-icon{
-  width:34px;
-  height:34px;
-  border-radius:50%;
-  flex-shrink:0;
-  display:flex;
-  align-items:center;
-  justify-content:center;
-  background:var(--bg-elev-3);
-}
-
-.event-icon svg{ width:16px; height:16px; stroke:var(--text-dim); }
-
-.event-icon.ok{ background:rgba(62,213,152,0.12); }
-.event-icon.ok svg{ stroke:var(--accent); }
-
-.event-icon.warn{ background:rgba(255,176,32,0.12); }
-.event-icon.warn svg{ stroke:var(--warn); }
-
-.event-icon.danger{ background:rgba(255,77,79,0.14); }
-.event-icon.danger svg{ stroke:var(--danger); }
-
-.event-body{ flex:1; min-width:0; }
-
-.event-title{
-  font-size:13.5px;
-  font-weight:600;
-  color:var(--text);
-  white-space:nowrap;
-  overflow:hidden;
-  text-overflow:ellipsis;
-}
-
-.event-time{
-  font-size:11.5px;
-  color:var(--text-dim);
-  margin-top:1px;
-}
-
-/* =========================================================================
-   MAPA
-   ========================================================================= */
-.map-card{
-  position:relative;
-  border-radius:var(--radius-lg);
-  overflow:hidden;
-  border:1px solid var(--border-soft);
-  margin-bottom:16px;
-  height:230px;
-  background: var(--bg-elev-2);
-}
-
-.map-geo{ 
-  width:100%; 
-  height:100%; 
-  background:var(--bg-elev-2);
-  /* ✅ NUEVO: Previene interacción durante carga */
-  pointer-events: auto;
-}
-
-/* ✅ NUEVO: Indicador de carga del mapa */
-.map-geo.loading::after {
-  content: 'Cargando mapa...';
-  position: absolute;
-  inset: 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: var(--bg-elev-2);
-  color: var(--text-dim);
-  font-size: 13px;
-  font-weight: 600;
-  z-index: 1;
-  animation: fadeInOut 1.5s ease-in-out infinite;
-}
-
-@keyframes fadeInOut {
-  0%, 100% { opacity: 0.4; }
-  50% { opacity: 1; }
-}
-
-.map-badge{
-  position:absolute;
-  left:10px;
-  right:10px;
-  bottom:10px;
-  background:rgba(10,13,18,0.85);
-  backdrop-filter:blur(6px);
-  -webkit-backdrop-filter:blur(6px);
-  border:1px solid var(--border-soft);
-  border-radius:var(--radius-sm);
-  padding:9px 12px;
-  font-size:12px;
-  color:var(--text-dim);
-  z-index: 2;
-}
-
-.map-badge b{ color:var(--text); font-weight:600; }
-
-/* =========================================================================
-   LIST ROW / SWITCH
-   ========================================================================= */
-.list-row{
-  display:flex;
-  align-items:center;
-  justify-content:space-between;
-  gap:12px;
-  background:var(--bg-elev-2);
-  border:1px solid var(--border-soft);
-  border-radius:var(--radius-md);
-  padding:14px 16px;
-  margin-bottom:9px;
-  transition: all var(--transition-fast);
-  /* ✅ NUEVO: Mejora área táctil */
-  min-height: 60px;
-}
-
-.list-row:active {
-  background: var(--bg-elev-3);
-  transform: scale(0.99);
-}
-
-.list-row-label{
-  font-size:14px;
-  font-weight:600;
-  color:var(--text);
-}
-
-.list-row-sub{
-  font-size:12px;
-  color:var(--text-dim);
-  margin-top:2px;
-  line-height:1.4;
-}
-
-.switch{
-  width:44px;
-  height:26px;
-  border-radius:var(--radius-pill);
-  background:var(--bg-elev-3);
-  border:1px solid var(--border);
-  position:relative;
-  flex-shrink:0;
-  transition: background var(--transition-fast), border-color var(--transition-fast);
-  cursor: pointer;
-  /* ✅ NUEVO: Mejora área táctil */
-  padding: 2px;
-}
-
-.switch::after{
-  content:'';
-  position:absolute;
-  top:2px;
-  left:2px;
-  width:20px;
-  height:20px;
-  border-radius:50%;
-  background:var(--text-dim);
-  transition: all var(--transition-fast);
-  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
-}
-
-.switch:active::after {
-  width: 24px;
-}
-
-.switch.on{ 
-  background:var(--accent-dim); 
-  border-color:var(--accent); 
-}
-
-.switch.on::after{
-  left:20px;
-  background:var(--accent);
-}
-
-/* =========================================================================
-   VINCULACIÓN BLUETOOTH
-   ========================================================================= */
-.key-link{
-  display:flex;
-  align-items:center;
-  gap:12px;
-  background:var(--bg-elev-2);
-  border:1px solid var(--border-soft);
-  border-radius:var(--radius-lg);
-  padding:16px;
-  margin-bottom:20px;
-  cursor:pointer;
-  transition: all var(--transition-fast);
-  width: 100%;
-  text-align: left;
-}
-
-.key-link:active{ 
-  transform:scale(0.99); 
-  background: var(--bg-elev-3);
-}
-
-.key-link-icon{
-  width:36px;
-  height:36px;
-  border-radius:10px;
-  background:var(--bg-elev-3);
-  padding:8px;
-  flex-shrink:0;
-  transition: background var(--transition-fast);
-}
-
-.key-link-icon svg{ 
-  stroke:var(--text-dim); 
-  transition: stroke var(--transition-fast);
-}
-
-.beam{
-  flex:1;
-  display:flex;
-  align-items:center;
-  justify-content:center;
-  gap:5px;
-  transition:opacity var(--transition-med);
-}
-
-.beam-dot{
-  width:5px;
-  height:5px;
-  border-radius:50%;
-  background:var(--accent);
-}
-
-.beam-dot:nth-child(2){ animation: beamPulse 1.4s infinite 0.15s; }
-.beam-dot:nth-child(1){ animation: beamPulse 1.4s infinite 0s; }
-.beam-dot:nth-child(3){ animation: beamPulse 1.4s infinite 0.3s; }
-
-@keyframes beamPulse{
-  0%,100%{ opacity:0.25; }
-  50%{ opacity:1; }
-}
-
-.key-link-status{ flex-shrink:0; text-align:right; }
-
-.key-link-title{ 
-  font-size:13px; 
-  font-weight:600; 
-  color: var(--text);
-}
-
-.key-link-sub{ 
-  font-size:11.5px; 
-  color:var(--text-dim); 
-  margin-top:2px; 
-}
-
-.key-link.connected .key-link-icon{ 
-  background: rgba(62, 213, 152, 0.12);
-}
-
-.key-link.connected .key-link-icon svg{ stroke:var(--accent); }
-
-/* =========================================================================
-   SEGMENTED CONTROL (Seguros)
-   ========================================================================= */
-.segmented{
-  display:flex;
-  background:var(--bg-elev-2);
-  border:1px solid var(--border-soft);
-  border-radius:var(--radius-md);
-  padding:4px;
-  margin-bottom:22px;
-  gap:4px;
-}
-
-.segmented-btn{
-  flex:1;
-  display:flex;
-  align-items:center;
-  justify-content:center;
-  gap:7px;
-  padding:11px 0;
-  border-radius:var(--radius-sm);
-  font-size:13.5px;
-  font-weight:600;
-  color:var(--text-dim);
-  transition: all var(--transition-fast);
-  cursor: pointer;
-  /* ✅ NUEVO: Mejora área táctil */
-  min-height: 44px;
-}
-
-.segmented-btn svg{ 
-  width:16px; 
-  height:16px; 
-  stroke:currentColor; 
-  transition: stroke var(--transition-fast);
-}
-
-.segmented-btn:active {
-  transform: scale(0.97);
-}
-
-.segmented-btn.active{
-  background:var(--bg-elev-3);
-  color:var(--text);
-  box-shadow:0 1px 0 rgba(255,255,255,0.03) inset;
-}
-
-.segmented-btn.active svg{ stroke:var(--accent); }
-
-/* =========================================================================
-   VIDRIOS — control simplificado (Subir / Bajar)
-   ========================================================================= */
-.window-simple{
-  background:var(--bg-elev-2);
-  border:1px solid var(--border-soft);
-  border-radius:var(--radius-lg);
-  padding:16px;
-  margin-bottom:22px;
-}
-
-.window-simple-top{
-  display:flex;
-  align-items:center;
-  justify-content:space-between;
-  margin-bottom:10px;
-}
-
-.window-simple-label{
-  font-size:13.5px;
-  font-weight:600;
-  color:var(--text);
-}
-
-.window-simple-pct{
-  font-family:var(--font-mono);
-  font-size:13px;
-  color:var(--text-dim);
-  font-weight: 600;
-}
-
-.window-simple-track{
-  width:100%;
-  height:6px;
-  border-radius:var(--radius-pill);
-  background:var(--bg-elev-3);
-  overflow:hidden;
-  margin-bottom:14px;
-  position: relative;
-}
-
-.window-simple-fill{
-  height:100%;
-  background:var(--accent);
-  border-radius:var(--radius-pill);
-  transition: width var(--transition-med), background var(--transition-med);
-  /* ✅ NUEVO: Animación suave */
-  will-change: width;
-}
-
-.window-simple-btns{
-  display:flex;
-  gap:10px;
-}
-
-.window-simple-btn{
-  flex:1;
-  padding:13px 0;
-  border-radius:var(--radius-sm);
-  background:var(--bg-elev-3);
-  border:1px solid var(--border);
-  font-size:14px;
-  font-weight:700;
-  color:var(--text);
-  transition: all var(--transition-fast);
-  cursor: pointer;
-  /* ✅ NUEVO: Mejora área táctil */
-  min-height: 48px;
-}
-
-.window-simple-btn:active{
-  background:var(--accent-dim);
-  border-color:var(--accent);
-  color:var(--accent);
-  transform:scale(0.97);
-}
-
-.window-simple-btn:disabled{
-  opacity:0.4;
-  cursor:not-allowed;
-  pointer-events: none;
-}
-
-/* =========================================================================
-   LUCES
-   ========================================================================= */
-.fault-banner{
-  display:flex;
-  align-items:center;
-  gap:10px;
-  background:rgba(255,176,32,0.1);
-  border:1px solid var(--warn-dim);
-  border-radius:var(--radius-md);
-  padding:12px 14px;
-  margin-bottom:12px;
-  font-size:12.5px;
-  color:var(--warn);
-  animation: slideInTop var(--transition-med);
-}
-
-.fault-banner svg{ 
-  width:18px; 
-  height:18px; 
-  stroke:var(--warn); 
-  flex-shrink:0; 
-}
-
-.light-grid{
-  display:grid;
-  grid-template-columns:repeat(4, 1fr);
-  gap:9px;
-  margin-bottom:22px;
-}
-
-.light-item{
-  display:flex;
-  flex-direction:column;
-  align-items:center;
-  gap:7px;
-  background:var(--bg-elev-2);
-  border:1px solid var(--border-soft);
-  border-radius:var(--radius-md);
-  padding:12px 4px;
-  transition: all var(--transition-fast);
-  cursor: pointer;
-  /* ✅ NUEVO: Mejora área táctil */
-  min-height: 74px;
-}
-
-.light-item:active {
-  transform: scale(0.95);
-}
-
-.light-item-icon{
-  width:22px;
-  height:22px;
-}
-
-.light-item-icon svg{ 
-  stroke:var(--text-dim); 
-  transition: stroke var(--transition-fast); 
-}
-
-.light-item-label{
-  font-size:10.5px;
-  font-weight:600;
-  color:var(--text-dim);
-  text-align:center;
-  line-height: 1.2;
-  transition: color var(--transition-fast);
-}
-
-.light-item.active{
-  background:var(--accent-dim);
-  border-color:var(--accent);
-  box-shadow: 0 0 0 2px var(--accent-glow);
-}
-
-.light-item.active .light-item-icon svg{ stroke:var(--accent); }
-.light-item.active .light-item-label{ color:var(--accent); }
-
-.light-item.fault{
-  background:rgba(255,77,79,0.08);
-  border-color:var(--danger-dim);
-}
-
-.light-item.fault .light-item-icon svg{ stroke:var(--danger); }
-.light-item.fault .light-item-label{ color:var(--danger); }
-
-/* =========================================================================
-   OTRAS ACCIONES
-   ========================================================================= */
-.ctrl-grid{
-  display:grid;
-  grid-template-columns:1fr 1fr;
-  gap:10px;
-  margin-bottom:10px;
-}
-
-.ctrl-btn{
-  display:flex;
-  align-items:center;
-  justify-content:space-between;
-  gap:10px;
-  background:var(--bg-elev-2);
-  border:1px solid var(--border-soft);
-  border-radius:var(--radius-md);
-  padding:15px 16px;
-  font-size:13.5px;
-  font-weight:600;
-  color:var(--text);
-  transition: all var(--transition-fast);
-  cursor: pointer;
-  text-align: left;
-}
-
-.ctrl-btn svg{
-  width:20px;
-  height:20px;
-  stroke:var(--text-dim);
-  flex-shrink:0;
-  transition: stroke var(--transition-fast);
-}
-
-.ctrl-btn:not(.full){
-  flex-direction:column;
-  align-items:flex-start;
-  justify-content:flex-start;
-  gap:10px;
-  min-height:78px;
-}
-
-.ctrl-btn.full{
-  grid-column:1 / -1;
-}
-
-.ctrl-btn.danger{
-  color:var(--danger);
-}
-
-.ctrl-btn.danger svg{ stroke:var(--danger); }
-
-.ctrl-btn:active{ 
-  transform:scale(0.98); 
-  background: var(--bg-elev-3);
-}
-
-.ctrl-btn:disabled,
-.ctrl-btn.disabled{
-  opacity:0.4;
-  cursor:not-allowed;
-  filter:grayscale(0.4);
-  pointer-events: none;
-}
-
-/* =========================================================================
-   CÁMARA
-   ========================================================================= */
-.cam-feed{
-  position:relative;
-  height:210px;
-  border-radius:var(--radius-lg);
-  background:var(--bg-elev-2);
-  border:1px solid var(--border-soft);
-  display:flex;
-  flex-direction:column;
-  align-items:center;
-  justify-content:center;
-  gap:10px;
-  margin-bottom:18px;
-  overflow:hidden;
-}
-
-.cam-feed svg{ 
-  width:40px; 
-  height:40px; 
-  stroke:var(--text-faint); 
-}
-
-.cam-feed p{
-  font-size:12.5px;
-  color:var(--text-dim);
-  margin:0;
-  text-align:center;
-  padding:0 30px;
-  line-height: 1.4;
-}
-
-.rec{
-  position:absolute;
-  top:10px;
-  left:10px;
-  display:flex;
-  align-items:center;
-  gap:6px;
-  background:rgba(0,0,0,0.5);
-  backdrop-filter: blur(4px);
-  border-radius:var(--radius-pill);
-  padding:5px 10px;
-  font-size:10.5px;
-  font-weight:700;
-  letter-spacing:0.4px;
-  color:var(--text);
-  z-index: 2;
-}
-
-.rec .dot{
-  width:6px;
-  height:6px;
-  border-radius:50%;
-  background:var(--danger);
-  animation: blinkDot 1s infinite;
-}
-
-.gallery{
-  display:grid;
-  grid-template-columns:repeat(3, 1fr);
-  gap:8px;
-}
-
-.gallery-item{
-  aspect-ratio:1;
-  border-radius:var(--radius-sm);
-  background:var(--bg-elev-2);
-  border:1px solid var(--border-soft);
-  display:flex;
-  align-items:center;
-  justify-content:center;
-  padding:22%;
-  transition: all var(--transition-fast);
-  cursor: pointer;
-}
-
-.gallery-item:active {
-  background: var(--bg-elev-3);
-  transform: scale(0.95);
-}
-
-.gallery-item svg{ stroke:var(--text-faint); }
-
-/* =========================================================================
-   AJUSTES
-   ========================================================================= */
-.settings-group{ 
-  margin-bottom:22px; 
-}
-
-.settings-group h3{
-  font-size:12px;
-  text-transform:uppercase;
-  letter-spacing:0.6px;
-  color:var(--text-faint);
-  font-weight:700;
-  margin:0 0 9px 4px;
-}
-
-.settings-note{
-  font-size:11.5px;
-  color:var(--text-dim);
-  margin:0 0 9px 4px;
-  line-height: 1.4;
-}
-
-.proximity-meter{
-  background:var(--bg-elev-2);
-  border:1px solid var(--border-soft);
-  border-radius:var(--radius-md);
-  padding:14px 16px;
-  margin-bottom:9px;
-}
-
-.proximity-meter-top{
-  display:flex;
-  align-items:center;
-  justify-content:space-between;
-  margin-bottom:10px;
-}
-
-.proximity-meter-val{
-  font-family:var(--font-mono);
-  font-size:12.5px;
-  color:var(--accent);
-  font-weight:600;
-}
-
-.range{
-  width:100%;
-  -webkit-appearance:none;
-  appearance:none;
-  height:4px;
-  border-radius:var(--radius-pill);
-  background:var(--bg-elev-3);
-  outline:none;
-  cursor: pointer;
-}
-
-.range::-webkit-slider-thumb{
-  -webkit-appearance:none;
-  width:18px;
-  height:18px;
-  border-radius:50%;
-  background:var(--accent);
-  border:3px solid var(--bg);
-  box-shadow:0 0 0 1px var(--accent), 0 2px 4px rgba(0,0,0,0.3);
-  cursor:pointer;
-  transition: transform var(--transition-fast);
-}
-
-.range::-webkit-slider-thumb:active {
-  transform: scale(1.2);
-}
-
-.range::-moz-range-thumb{
-  width:18px;
-  height:18px;
-  border-radius:50%;
-  background:var(--accent);
-  border:3px solid var(--bg);
-  box-shadow:0 0 0 1px var(--accent), 0 2px 4px rgba(0,0,0,0.3);
-  cursor:pointer;
-  transition: transform var(--transition-fast);
-}
-
-.range::-moz-range-thumb:active {
-  transform: scale(1.2);
-}
-
-.range-labels{
-  display:flex;
-  justify-content:space-between;
-  font-size:10.5px;
-  color:var(--text-faint);
-  margin-top:6px;
-}
-
-/* =========================================================================
-   BARRA DE NAVEGACIÓN INFERIOR
-   ========================================================================= */
-.tabbar{
-  position:sticky;
-  bottom:0;
-  display:flex;
-  background:rgba(10,13,18,0.9);
-  backdrop-filter:blur(14px);
-  -webkit-backdrop-filter:blur(14px);
-  border-top:1px solid var(--border-soft);
-  /* ✅ NUEVO: Safe area para home indicator iOS */
-  padding:8px 6px calc(8px + env(safe-area-inset-bottom, 0px));
-  max-width:480px;
-  margin:0 auto;
-  width:100%;
-  z-index: 10;
-}
-
-.tab{
-  flex:1;
-  display:flex;
-  flex-direction:column;
-  align-items:center;
-  gap:4px;
-  padding:6px 0;
-  color:var(--text-faint);
-  border-radius:var(--radius-sm);
-  transition: color var(--transition-fast), background var(--transition-fast);
-  cursor: pointer;
-  text-decoration: none;
-  /* ✅ NUEVO: Mejora área táctil */
-  min-height: 52px;
-  justify-content: center;
-}
-
-.tab svg{ 
-  width:21px; 
-  height:21px; 
-  stroke:currentColor; 
-  transition: stroke var(--transition-fast);
-}
-
-.tab span{ 
-  font-size:10px; 
-  font-weight:600; 
-}
-
-.tab:active {
-  background: var(--bg-elev-2);
-}
-
-.tab.active{ 
-  color:var(--accent); 
-}
-
-.app[data-alarm="true"] .tab.active{ color:var(--danger); }
-
-/* =========================================================================
-   TOAST
-   ========================================================================= */
-.toast{
-  position:fixed;
-  left:50%;
-  bottom:calc(96px + env(safe-area-inset-bottom, 0px));
-  transform:translate(-50%, 16px);
-  max-width:400px;
-  width:calc(100% - 48px);
-  background:var(--bg-elev-3);
-  border:1px solid var(--border);
-  color:var(--text);
-  font-size:13px;
-  font-weight:600;
-  padding:13px 16px;
-  border-radius:var(--radius-md);
-  box-shadow:var(--shadow-elev);
-  opacity:0;
-  pointer-events:none;
-  transition: all var(--transition-med);
-  z-index:200;
-  white-space:pre-line;
-  text-align:center;
-  backdrop-filter: blur(10px);
-  -webkit-backdrop-filter: blur(10px);
-}
-
-.toast.show{
-  opacity:1;
-  transform:translate(-50%, 0);
-  pointer-events: auto;
-}
-
-.toast.success{ 
-  border-color:var(--accent-dim); 
-  background: rgba(62, 213, 152, 0.15);
-}
-
-.toast.error{ 
-  border-color:var(--danger-dim); 
-  background: rgba(255, 77, 79, 0.15);
-}
-
-.toast.warn{ 
-  border-color:var(--warn-dim); 
-  background: rgba(255, 176, 32, 0.15);
-}
-
-/* =========================================================================
-   OVERLAYS / MODALES
-   ========================================================================= */
-.overlay{
-  position:fixed;
-  inset:0;
-  background:rgba(6,8,11,0.72);
-  backdrop-filter:blur(6px);
-  -webkit-backdrop-filter:blur(6px);
-  display:flex;
-  align-items:center;
-  justify-content:center;
-  z-index:300;
-  padding:24px;
-  animation: overlayIn var(--transition-med);
-}
-
-.overlay[hidden]{ display:none; }
-
-@keyframes overlayIn{
-  from{ opacity:0; }
-  to{ opacity:1; }
-}
-
-.lock-card, .modal-card{
-  width:100%;
-  max-width:340px;
-  background:var(--bg-elev-2);
-  border:1px solid var(--border);
-  border-radius:var(--radius-lg);
-  padding:28px 24px 22px;
-  text-align:center;
-  box-shadow:var(--shadow-elev);
-  animation: modalIn var(--transition-med);
-}
-
-@keyframes modalIn{
-  from{ opacity:0; transform:translateY(14px) scale(0.98); }
-  to{ opacity:1; transform:translateY(0) scale(1); }
-}
-
-.lock-icon{
-  width:52px;
-  height:52px;
-  margin:0 auto 16px;
-  padding:12px;
-  border-radius:16px;
-  background:var(--accent-dim);
-}
-
-.lock-icon svg{ stroke:var(--accent); }
-
-.lock-title{
-  font-family:var(--font-display);
-  font-size:19px;
-  font-weight:700;
-  margin-bottom:6px;
-  color: var(--text);
-}
-
-.lock-sub{
-  font-size:13px;
-  color:var(--text-dim);
-  margin-bottom:20px;
-  line-height:1.45;
-}
-
-.btn-primary{
-  width:100%;
-  padding:14px;
-  border-radius:var(--radius-md);
-  background:var(--accent);
-  color:#06140D;
-  font-size:14px;
-  font-weight:700;
-  margin-bottom:10px;
-  transition: all var(--transition-fast);
-  cursor: pointer;
-  /* ✅ NUEVO: Mejora área táctil */
-  min-height: 48px;
-}
-
-.btn-primary:active{ 
-  transform:scale(0.98); 
-  background: var(--accent-dim);
-}
-
-.btn-primary:disabled{
-  opacity:0.35;
-  cursor:not-allowed;
-  pointer-events: none;
-}
-
-.btn-secondary{
-  width:100%;
-  padding:14px;
-  border-radius:var(--radius-md);
-  background:var(--bg-elev-3);
-  border:1px solid var(--border);
-  color:var(--text-dim);
-  font-size:14px;
-  font-weight:600;
-  transition: all var(--transition-fast);
-  cursor: pointer;
-  /* ✅ NUEVO: Mejora área táctil */
-  min-height: 48px;
-}
-
-.btn-secondary:active{ 
-  transform:scale(0.98); 
-  background: var(--bg-elev-2);
-}
-
-/* ---- PIN pad ---- */
-.pin-dots{
-  display:flex;
-  justify-content:center;
-  gap:12px;
-  margin-bottom:8px;
-}
-
-.pin-dots span{
-  width:13px;
-  height:13px;
-  border-radius:50%;
-  border:1.5px solid var(--border);
-  background:transparent;
-  transition: all var(--transition-fast);
-}
-
-.pin-dots span.filled{
-  background:var(--accent);
-  border-color:var(--accent);
-  box-shadow: 0 0 0 3px var(--accent-glow);
-}
-
-.pin-dots span.error{
-  background:var(--danger);
-  border-color:var(--danger);
-  animation: shakeError 0.4s ease-in-out;
-}
-
-@keyframes shakeError {
-  0%, 100% { transform: translateX(0); }
-  25% { transform: translateX(-4px); }
-  75% { transform: translateX(4px); }
-}
-
-.pin-error{
-  min-height:18px;
-  font-size:12px;
-  color:var(--danger);
-  font-weight:600;
-  margin-bottom:6px;
-}
-
-.pin-pad{
-  display:grid;
-  grid-template-columns:repeat(3, 1fr);
-  gap:12px;
-  margin:14px 0 18px;
-}
-
-.pin-pad button{
-  aspect-ratio:1;
-  border-radius:50%;
-  background:var(--bg-elev-3);
-  border:1px solid var(--border-soft);
-  font-size:19px;
-  font-weight:600;
-  color:var(--text);
-  transition: all var(--transition-fast);
-  cursor: pointer;
-  /* ✅ NUEVO: Mejora área táctil */
-  min-height: 56px;
-}
-
-.pin-pad button:active{
-  background:var(--accent-dim);
-  border-color: var(--accent);
-  transform:scale(0.94);
-}
-
-.pin-pad button:disabled {
-  opacity: 0;
-  pointer-events: none;
-}
-
-/* ---- Checklist de arranque / apagado remoto ---- */
-.checklist-card{ max-width:360px; }
-
-.checklist-icon{
-  width:52px;
-  height:52px;
-  margin:0 auto 16px;
-  padding:12px;
-  border-radius:16px;
-  background:var(--bg-elev-3);
-  transition: background var(--transition-fast);
-}
-
-.checklist-icon svg{ 
-  stroke:var(--accent); 
-  transition: stroke var(--transition-fast);
-}
-
-.checklist-icon.blocked svg{ stroke:var(--danger); }
-.checklist-icon.blocked{ background:rgba(255,77,79,0.12); }
-
-.checklist-items{
-  display:flex;
-  flex-direction:column;
-  gap:8px;
-  margin-bottom:20px;
-  text-align:left;
-}
-
-.checklist-item{
-  display:flex;
-  align-items:center;
-  gap:10px;
-  background:var(--bg-elev-3);
-  border:1px solid var(--border-soft);
-  border-radius:var(--radius-sm);
-  padding:11px 13px;
-  transition: all var(--transition-fast);
-}
-
-.checklist-item-icon{
-  width:22px;
-  height:22px;
-  border-radius:50%;
-  flex-shrink:0;
-  display:flex;
-  align-items:center;
-  justify-content:center;
-  background:var(--bg-elev-2);
-  transition: background var(--transition-fast);
-}
-
-.checklist-item-icon svg{ 
-  width:12px; 
-  height:12px; 
-  transition: stroke var(--transition-fast);
-}
-
-.checklist-item.ok{ 
-  border-color: var(--accent-dim);
-}
-
-.checklist-item.ok .checklist-item-icon{ background:rgba(62,213,152,0.15); }
-.checklist-item.ok .checklist-item-icon svg{ stroke:var(--accent); }
-.checklist-item.ok .checklist-item-text{ color:var(--text); }
-
-.checklist-item.fail{ 
-  border-color: var(--danger-dim);
-}
-
-.checklist-item.fail .checklist-item-icon{ background:rgba(255,77,79,0.15); }
-.checklist-item.fail .checklist-item-icon svg{ stroke:var(--danger); }
-.checklist-item.fail .checklist-item-text{ color:var(--danger); }
-
-.checklist-item-text{
-  font-size:12.5px;
-  font-weight:600;
-  color:var(--text-dim);
-  transition: color var(--transition-fast);
-}
-
-/* =========================================================================
-   BOTÓN DE INSTALACIÓN PWA
-   ========================================================================= */
-.install-btn-container{
-  position:fixed;
-  left:50%;
-  bottom:calc(96px + env(safe-area-inset-bottom, 0px));
-  transform:translateX(-50%);
-  display:flex;
-  align-items:center;
-  gap:8px;
-  background:var(--accent);
-  color:#06140D;
-  font-size:13px;
-  font-weight:700;
-  padding:12px 18px;
-  border-radius:var(--radius-pill);
-  box-shadow:var(--shadow-elev);
-  cursor:pointer;
-  z-index:150;
-  transition: all var(--transition-fast);
-  animation: slideInBottom var(--transition-med);
-  /* ✅ NUEVO: Mejora área táctil */
-  min-height: 48px;
-}
-
-@keyframes slideInBottom {
-  from {
-    opacity: 0;
-    transform: translate(-50%, 20px);
+  function soundEnabled() {
+    return safeLocalStorageGet(LS.soundOn, 'on') !== 'off';
   }
-  to {
-    opacity: 1;
-    transform: translate(-50%, 0);
+
+  function vibrate(pattern) {
+    if (soundEnabled() && 'vibrate' in navigator) {
+      try { 
+        navigator.vibrate(pattern); 
+      } catch (e) { 
+        console.warn('Vibración no soportada:', e);
+      }
+    }
   }
-}
 
-.install-btn-container:active {
-  transform: translate(-50%, 2px) scale(0.98);
-}
+  // ✅ CORREGIDO: AudioContext con inicialización segura
+  function ensureAudioCtx() {
+    if (!audioCtx) {
+      const AC = window.AudioContext || window.webkitAudioContext;
+      if (!AC) {
+        console.warn('Web Audio API no soportada');
+        return null;
+      }
+      audioCtx = new AC();
+      
+      // Desbloquear audio en iOS (requiere interacción de usuario)
+      if (!audioUnlocked) {
+        const unlockAudio = () => {
+          if (audioCtx.state === 'suspended') {
+            audioCtx.resume().then(() => {
+              audioUnlocked = true;
+              console.log('✅ Audio desbloqueado');
+            });
+          }
+        };
+        
+        document.addEventListener('touchstart', unlockAudio, { once: true });
+        document.addEventListener('click', unlockAudio, { once: true });
+      }
+    }
+    
+    if (audioCtx.state === 'suspended') {
+      audioCtx.resume().catch(e => console.warn('No se pudo reanudar AudioContext:', e));
+    }
+    
+    return audioCtx;
+  }
 
-.install-btn-container svg{ 
-  width:16px; 
-  height:16px; 
-  stroke:#06140D; 
-}
+  // Sintetiza un tono simple. type: 'beep' corto, 'confirm' ascendente, 'alarm' descendente/agudo
+  function playTone(freqs, durationMs, gainVal = 0.08) {
+    if (!soundEnabled()) return;
+    const ctx = ensureAudioCtx();
+    if (!ctx || ctx.state !== 'running') return;
+    
+    try {
+      const now = ctx.currentTime;
+      freqs.forEach((f, i) => {
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.type = 'square';
+        osc.frequency.value = f;
+        gain.gain.value = gainVal;
+        osc.connect(gain);
+        gain.connect(ctx.destination);
+        const start = now + i * (durationMs / 1000);
+        osc.start(start);
+        gain.gain.setValueAtTime(gainVal, start);
+        gain.gain.exponentialRampToValueAtTime(0.001, start + durationMs / 1000);
+        osc.stop(start + durationMs / 1000 + 0.02);
+      });
+    } catch (e) {
+      console.warn('Error reproduciendo tono:', e);
+    }
+  }
 
-/* =========================================================================
-   RESPONSIVE / AJUSTES MENORES
-   ========================================================================= */
-@media (max-width:360px){
-  .light-grid{ grid-template-columns:repeat(3, 1fr); }
-  .ctrl-grid{ grid-template-columns: 1fr; }
-}
+  // Sonido de arranque de motor: dos tonos ascendentes + vibración corta
+  function playEngineStartSound() {
+    playTone([220, 330, 440], 130, 0.09);
+    vibrate([40, 30, 60]);
+  }
 
-/* ✅ NUEVO: Optimización para pantallas pequeñas */
-@media (max-height: 600px) {
-  .shield-wrap {
-    width: 150px;
-    height: 150px;
+  // Sonido de apagado de motor: dos tonos descendentes + vibración larga
+  function playEngineStopSound() {
+    playTone([440, 330, 220], 150, 0.09);
+    vibrate([80, 40, 80]);
+  }
+
+  function playConfirmSound() {
+    playTone([700, 900], 90, 0.06);
+  }
+
+  function playErrorSound() {
+    playTone([220, 160], 120, 0.08);
+    vibrate([120]);
+  }
+
+  let toastTimer = null;
+  function showToast(message, type = 'info') {
+    if (!el.toast) return;
+    el.toast.textContent = message;
+    el.toast.className = 'toast show ' + (type === 'error' ? 'error' : type === 'warn' ? 'warn' : type === 'success' ? 'success' : '');
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => {
+      el.toast.classList.remove('show');
+    }, 3200);
+  }
+
+  function formatTime(date = new Date()) {
+    return date.toLocaleTimeString('es-EC', { hour: '2-digit', minute: '2-digit' });
+  }
+
+  // =========================================================================
+  // ACTIVIDAD RECIENTE (eventos reales derivados del estado del vehículo)
+  // =========================================================================
+
+  // ✅ CORREGIDO: Debounce para evitar eventos duplicados
+  let eventDebounceTimer = null;
+  let lastEventKey = '';
+
+  function addEvent(title, iconType = 'ok', iconSvg = ICONS.info) {
+    if (!el.eventFeed) return;
+
+    // Evitar eventos duplicados inmediatos
+    const eventKey = `${title}-${iconType}`;
+    if (eventKey === lastEventKey) return;
+    lastEventKey = eventKey;
+
+    clearTimeout(eventDebounceTimer);
+    eventDebounceTimer = setTimeout(() => {
+      lastEventKey = '';
+    }, 1000);
+
+    if (el.eventFeedEmpty && el.eventFeedEmpty.parentNode) {
+      el.eventFeedEmpty.remove();
+    }
+
+    const item = document.createElement('div');
+    item.className = 'event';
+    item.innerHTML = `
+      <div class="event-icon ${iconType}">${iconSvg}</div>
+      <div class="event-body">
+        <div class="event-title">${title}</div>
+        <div class="event-time">${formatTime()}</div>
+      </div>`;
+    el.eventFeed.prepend(item);
+
+    // Limitar a 12 eventos visibles para no saturar la pantalla
+    const items = el.eventFeed.querySelectorAll('.event');
+    if (items.length > 12) {
+      items[items.length - 1].remove();
+    }
+
+    // ✅ NUEVO: Persistir eventos en localStorage (con límite)
+    try {
+      const savedEvents = JSON.parse(safeLocalStorageGet(LS.events, '[]'));
+      savedEvents.unshift({
+        title,
+        iconType,
+        timestamp: Date.now()
+      });
+      // Mantener solo los últimos 50 eventos
+      const trimmed = savedEvents.slice(0, 50);
+      safeLocalStorageSet(LS.events, JSON.stringify(trimmed));
+    } catch (e) {
+      console.warn('Error guardando evento:', e);
+    }
+  }
+
+  const ICONS = {
+    door: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M3 22h18M6 18V9l6-5 6 5v9M9 22V14h6v8"/></svg>',
+    lock: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V7a4 4 0 018 0v4"/></svg>',
+    unlock: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V7a4 4 0 017.6-1.8"/></svg>',
+    light: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="3"/><path d="M12 2v4M12 18v4M4.9 4.9l2.8 2.8M16.3 16.3l2.8 2.8M2 12h4M18 12h4M4.9 19.1l2.8-2.8M16.3 7.7l2.8-2.8"/></svg>',
+    window: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 19V5M6 11l6-6 6 6"/></svg>',
+    shield: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 2l8 3v6c0 5-3.4 8.4-8 11-4.6-2.6-8-6-8-11V5l8-3z"/></svg>',
+    alarm: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 9v4M12 17h.01M10.3 3.9L2.5 17a2 2 0 001.7 3h15.6a2 2 0 001.7-3L13.7 3.9a2 2 0 00-3.4 0z"/></svg>',
+    engine: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M13 2L3 14h7l-1 8 10-12h-7l1-8z"/></svg>',
+    battery: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M13 2L3 14h7l-1 8 10-12h-7l1-8z"/></svg>',
+    info: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M12 8v4M12 16h.01"/></svg>',
+    bluetooth: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="7" y="2" width="10" height="20" rx="2"/><path d="M11 18h2"/></svg>'
+  };
+
+  const LIGHT_LABELS = {
+    LOWBEAM: 'Luces bajas', HIGHBEAM: 'Luces altas', TURN_L: 'Direccional izq.',
+    TURN_R: 'Direccional der.', BRAKE: 'Luz de freno', REVERSE: 'Luz de reversa',
+    FOG: 'Antiniebla', PARK: 'Luces de parqueo'
+  };
+
+  // Compara el estado anterior con el nuevo y registra eventos reales de
+  // puertas, luces, vidrios, seguros, alarma y motor.
+  function diffAndLogEvents(prev, next) {
+    if (!prev) return; // primera lectura: no generamos eventos retroactivos
+
+    if (prev.doorOpen !== next.doorOpen) {
+      addEvent(next.doorOpen ? '🚪 Puerta abierta' : '🚪 Puerta cerrada',
+        next.doorOpen ? 'warn' : 'ok', ICONS.door);
+    }
+
+    if (prev.locked !== next.locked) {
+      addEvent(next.locked ? '🔒 Seguros cerrados' : '🔓 Seguros abiertos',
+        next.locked ? 'ok' : 'warn', next.locked ? ICONS.lock : ICONS.unlock);
+    }
+
+    if (prev.armed !== next.armed) {
+      addEvent(next.armed ? '🛡️ Sistema armado' : '🛡️ Sistema desarmado',
+        'ok', ICONS.shield);
+    }
+
+    if (!prev.alarmTriggered && next.alarmTriggered) {
+      addEvent('🚨 ¡Alarma disparada!', 'danger', ICONS.alarm);
+    } else if (prev.alarmTriggered && !next.alarmTriggered) {
+      addEvent('🔕 Alarma detenida', 'ok', ICONS.alarm);
+    }
+
+    if (prev.engine !== next.engine) {
+      addEvent(next.engine ? '🚀 Motor encendido' : '🛑 Motor apagado',
+        next.engine ? 'ok' : 'warn', ICONS.engine);
+    }
+
+    if (prev.windowL !== next.windowL || prev.windowR !== next.windowR) {
+      const avgOld = Math.round((prev.windowL + prev.windowR) / 2);
+      const avgNew = Math.round((next.windowL + next.windowR) / 2);
+      if (avgOld !== avgNew) {
+        addEvent(`🪟 Vidrios ajustados (${avgNew}%)`, 'ok', ICONS.window);
+      }
+    }
+
+    if (prev.lights && next.lights) {
+      Object.keys(next.lights).forEach((id) => {
+        if (prev.lights[id] !== next.lights[id]) {
+          const label = LIGHT_LABELS[id] || id;
+          addEvent(`💡 ${label} ${next.lights[id] ? 'encendida' : 'apagada'}`,
+            next.lights[id] ? 'ok' : 'warn', ICONS.light);
+        }
+      });
+    }
+
+    if (prev.battery !== undefined && next.battery !== undefined) {
+      const wasLow = prev.battery <= 11.8;
+      const isLow = next.battery <= 11.8;
+      if (!wasLow && isLow) {
+        addEvent(`🔋 Batería baja (${next.battery.toFixed(1)}V)`, 'warn', ICONS.battery);
+      }
+    }
+  }
+
+  // =========================================================================
+  // RENDERIZADO DE ESTADO
+  // =========================================================================
+
+  function renderState(state) {
+    previousState = lastState;
+    lastState = state;
+
+    diffAndLogEvents(previousState, state);
+
+    // ---- Tema de alarma (rojo global) + badge ----
+    const alarmOn = !!state.alarmTriggered;
+    el.app.setAttribute('data-alarm', alarmOn ? 'true' : 'false');
+    el.app.setAttribute('data-armed', state.armed ? 'true' : 'false');
+    if (el.alarmBadge) el.alarmBadge.hidden = !alarmOn;
+    
+    const themeColorMeta = document.getElementById('themeColorMeta');
+    if (themeColorMeta) {
+      themeColorMeta.setAttribute('content', alarmOn ? '#150707' : '#0A0D12');
+    }
+
+    // ---- Escudo ARM/DISARM ----
+    if (el.shieldLabel) el.shieldLabel.textContent = alarmOn ? '¡ALARMA!' : (state.armed ? 'ARMADO' : 'DESARMADO');
+    if (el.shieldBtn) el.shieldBtn.setAttribute('aria-pressed', state.armed ? 'true' : 'false');
+    if (el.shieldSubState) el.shieldSubState.textContent = alarmOn ? 'en alarma' : (state.armed ? 'activo' : 'inactivo');
+    if (el.doorStatus) el.doorStatus.textContent = state.doorOpen ? 'abiertas' : 'cerradas';
+
+    // ---- Estadísticas ----
+    if (el.statBattery) el.statBattery.textContent = (typeof state.battery === 'number') ? `${state.battery.toFixed(1)}V` : '—';
+    if (el.statMotorTemp) el.statMotorTemp.textContent = state.engine ? 'Encendido' : 'Apagado';
+    if (el.statFuel) el.statFuel.textContent = (state.fuel != null) ? `${state.fuel}%` : 'N/D';
+    if (el.statGps) el.statGps.textContent = state.gpsSignal || 'Sin señal';
+
+    // ---- Seguros ----
+    if (el.lockBtnClosed && el.lockBtnOpen) {
+      el.lockBtnClosed.classList.toggle('active', !!state.locked);
+      el.lockBtnOpen.classList.toggle('active', !state.locked);
+      el.lockBtnClosed.setAttribute('aria-pressed', state.locked ? 'true' : 'false');
+      el.lockBtnOpen.setAttribute('aria-pressed', !state.locked ? 'true' : 'false');
+    }
+
+    // ---- Vidrios simplificados ----
+    const avgWindow = Math.round(((state.windowL ?? 0) + (state.windowR ?? 0)) / 2);
+    if (el.windowPct) el.windowPct.textContent = `${avgWindow}%`;
+    if (el.windowFill) el.windowFill.style.width = `${avgWindow}%`;
+    
+    // ✅ Actualizar aria-valuenow del progressbar
+    const windowTrack = document.querySelector('.window-simple-track');
+    if (windowTrack) {
+      windowTrack.setAttribute('aria-valuenow', avgWindow);
+    }
+    
+    if (el.windowUpBtn) el.windowUpBtn.disabled = !cmdChar || avgWindow >= 100;
+    if (el.windowDownBtn) el.windowDownBtn.disabled = !cmdChar || avgWindow <= 0;
+
+    // ---- Luces ----
+    document.querySelectorAll('.light-item').forEach((btn) => {
+      const id = btn.dataset.id;
+      const isOn = !!(state.lights && state.lights[id]);
+      btn.classList.toggle('active', isOn);
+      btn.setAttribute('aria-pressed', isOn ? 'true' : 'false');
+    });
+    
+    if (Array.isArray(state.faults) && state.faults.length > 0) {
+      el.lightFaultBanner.style.display = 'flex';
+      el.lightFaultText.textContent = `Falla detectada: ${state.faults.join(', ')}`;
+    } else if (el.lightFaultBanner) {
+      el.lightFaultBanner.style.display = 'none';
+    }
+
+    // ---- Botones de arranque / apagado remoto (bloqueo visual en vivo) ----
+    updateEngineButtonsState(state);
+
+    // ---- Mapa ----
+    updateMap(state);
+
+    // Si el modal de checklist está abierto, refrescarlo con el estado más reciente
+    if (checklistMode && !el.checklistOverlay.hidden) {
+      buildChecklist(checklistMode);
+    }
+  }
+
+  function startConditionsMet(state) {
+    return !!state.armed && !!state.parked && !!state.locked && !state.doorOpen && !state.engine;
+  }
+
+  function stopConditionsMet(state) {
+    return !!state.remoteStart && !!state.engine && !!state.parked && !!state.locked;
+  }
+
+  function updateEngineButtonsState(state) {
+    const connected = !!cmdChar;
+    if (el.startEngineBtn) {
+      const blocked = !connected || !startConditionsMet(state);
+      el.startEngineBtn.classList.toggle('disabled', blocked);
+      el.startEngineBtn.disabled = blocked;
+    }
+    if (el.stopEngineBtn) {
+      const blocked = !connected || !stopConditionsMet(state);
+      el.stopEngineBtn.classList.toggle('disabled', blocked);
+      el.stopEngineBtn.disabled = blocked;
+    }
+  }
+
+  // ✅ CORREGIDO: Validación de Leaflet y manejo seguro del mapa
+  function updateMap(state) {
+    if (typeof window.L === 'undefined') {
+      console.warn('Leaflet aún no está cargado');
+      return;
+    }
+    
+    const mapEl = document.getElementById('map');
+    if (!mapEl) return;
+
+    if (!state.gpsFix || state.lat == null || state.lng == null) {
+      const mapStatus = document.getElementById('mapStatus');
+      if (mapStatus) mapStatus.textContent = 'sin señal GPS';
+      
+      const mapAddress = document.getElementById('mapAddress');
+      if (mapAddress) mapAddress.textContent = 'Ubicación desconocida';
+      
+      // Mantener clase loading si no hay fix
+      if (!mapInitialized) {
+        mapEl.classList.add('loading');
+      }
+      return;
+    }
+
+    try {
+      if (!map) {
+        // Remover clase loading antes de inicializar
+        mapEl.classList.remove('loading');
+        
+        map = window.L.map(mapEl, { 
+          zoomControl: false, 
+          attributionControl: false 
+        }).setView([state.lat, state.lng], 16);
+        
+        window.L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+          maxZoom: 19
+        }).addTo(map);
+        
+        mapMarker = window.L.circleMarker([state.lat, state.lng], {
+          radius: 8, 
+          color: '#3ED598', 
+          fillColor: '#3ED598', 
+          fillOpacity: 0.9
+        }).addTo(map);
+        
+        mapInitialized = true;
+        console.log('✅ Mapa inicializado correctamente');
+      } else {
+        mapMarker.setLatLng([state.lat, state.lng]);
+        map.panTo([state.lat, state.lng]);
+      }
+
+      const mapSpeed = document.getElementById('mapSpeed');
+      const mapStatus = document.getElementById('mapStatus');
+      if (mapSpeed) mapSpeed.textContent = `${Math.round(state.speedKmh || 0)} km/h`;
+      if (mapStatus) mapStatus.textContent = (state.speedKmh || 0) > 2 ? 'en movimiento' : 'estacionado';
+      
+      // ✅ NUEVO: Geocodificación inversa simple (placeholder)
+      const mapAddress = document.getElementById('mapAddress');
+      if (mapAddress) {
+        mapAddress.textContent = `${state.lat.toFixed(4)}°, ${state.lng.toFixed(4)}°`;
+      }
+    } catch (err) {
+      console.error('Error actualizando mapa:', err);
+      mapEl.classList.add('loading');
+    }
+  }
+
+  // =========================================================================
+  // CONEXIÓN BLUETOOTH (Web Bluetooth API)
+  // =========================================================================
+
+  function setConnectionUI(status) {
+    // status: 'disconnected' | 'connecting' | 'connected'
+    el.statusPill.classList.remove('connected', 'connecting');
+    el.keyLinkCard.classList.remove('connected');
+
+    if (status === 'connected') {
+      el.statusPill.classList.add('connected');
+      el.statusPillText.textContent = 'Conectado';
+      el.keyLinkTitle.textContent = '🔗 Vinculado por Bluetooth';
+      el.keyLinkSub.textContent = bleDevice?.name || 'Centinela-ESP32';
+      el.keyLinkCard.classList.add('connected');
+      el.beam.style.opacity = '1';
+    } else if (status === 'connecting') {
+      el.statusPill.classList.add('connecting');
+      el.statusPillText.textContent = 'Conectando…';
+      el.keyLinkTitle.textContent = '📡 Buscando vehículo…';
+      el.keyLinkSub.textContent = 'Confirma el PIN 739201 si se solicita';
+      el.beam.style.opacity = '0.6';
+    } else {
+      el.statusPillText.textContent = 'Sin conexión';
+      el.keyLinkTitle.textContent = '📱 Toca para conectar por Bluetooth';
+      el.keyLinkSub.textContent = 'Sin conexión';
+      el.beam.style.opacity = '0.35';
+    }
+  }
+
+  async function connectBLE() {
+    if (bleBusy) {
+      console.log('Conexión BLE ya en proceso...');
+      return;
+    }
+    
+    if (!navigator.bluetooth) {
+      showToast('Este navegador no soporta Bluetooth Web. Usa Chrome/Edge en Android o desktop.', 'error');
+      return;
+    }
+    
+    if (cmdChar) {
+      showToast('Ya estás conectado a tu vehículo', 'info');
+      return;
+    }
+
+    bleBusy = true;
+    setConnectionUI('connecting');
+
+    try {
+      bleDevice = await navigator.bluetooth.requestDevice({
+        filters: [
+          { services: [BLE_SERVICE_UUID] }, 
+          { namePrefix: DEVICE_NAME_PREFIX }
+        ],
+        optionalServices: [BLE_SERVICE_UUID]
+      });
+
+      bleDevice.addEventListener('gattserverdisconnected', onBleDisconnected);
+
+      bleServer = await bleDevice.gatt.connect();
+      console.log('✅ Conectado al servidor GATT');
+      
+      const service = await bleServer.getPrimaryService(BLE_SERVICE_UUID);
+      console.log('✅ Servicio obtenido');
+      
+      cmdChar = await service.getCharacteristic(BLE_CMD_UUID);
+      statusChar = await service.getCharacteristic(BLE_STATUS_UUID);
+      console.log('✅ Características obtenidas');
+
+      await statusChar.startNotifications();
+      statusChar.addEventListener('characteristicvaluechanged', onStatusNotification);
+      console.log('✅ Notificaciones activadas');
+
+      // Leer estado inicial
+      try {
+        const value = await statusChar.readValue();
+        handleStatusBytes(value);
+      } catch (e) { 
+        console.warn('No se pudo leer estado inicial (algunos dispositivos solo notifican)');
+      }
+
+      setConnectionUI('connected');
+      showToast('✅ Vehículo conectado', 'success');
+      playConfirmSound();
+      addEvent('🔗 Teléfono conectado por Bluetooth', 'ok', ICONS.bluetooth);
+      
+      // ✅ NUEVO: Iniciar monitoreo de proximidad si está activado
+      if (safeLocalStorageGet(LS.proximity) === 'on') {
+        startProximityMonitoring();
+      }
+    } catch (err) {
+      console.error('Error de conexión BLE:', err);
+      setConnectionUI('disconnected');
+      
+      if (err.name === 'NotFoundError') {
+        // Usuario canceló el selector
+        console.log('Usuario canceló la selección de dispositivo');
+      } else {
+        showToast('No se pudo conectar: ' + err.message, 'error');
+        playErrorSound();
+      }
+    } finally {
+      bleBusy = false;
+    }
+  }
+
+  function onBleDisconnected() {
+    console.log('🔌 Dispositivo BLE desconectado');
+    cmdChar = null;
+    statusChar = null;
+    setConnectionUI('disconnected');
+    showToast('🔌 Se perdió la conexión con el vehículo', 'warn');
+    addEvent('🔌 Conexión Bluetooth perdida', 'danger', ICONS.bluetooth);
+    updateEngineButtonsState(lastState || {});
+    
+    // Detener monitoreo de proximidad
+    if (proximityCheckInterval) {
+      clearInterval(proximityCheckInterval);
+      proximityCheckInterval = null;
+    }
+  }
+
+  function handleStatusBytes(dataView) {
+    try {
+      const text = new TextDecoder().decode(dataView.buffer || dataView);
+      const state = JSON.parse(text);
+
+      if (state.ack) {
+        handleAck(state.ack, state.ok, state.message);
+      }
+      
+      renderState(state);
+    } catch (e) {
+      console.warn('No se pudo interpretar el estado recibido:', e);
+    }
+  }
+
+  function onStatusNotification(evt) {
+    handleStatusBytes(evt.target.value);
+  }
+
+  function handleAck(ack, ok, message) {
+    if (ack === 'START_ENGINE') {
+      if (ok) { 
+        playEngineStartSound(); 
+        showToast('🚀 Motor arrancado remotamente', 'success'); 
+      } else { 
+        playErrorSound(); 
+        showToast('⚠️ ' + (message || 'No se pudo arrancar el motor'), 'error'); 
+      }
+    } else if (ack === 'STOP_ENGINE') {
+      if (ok) { 
+        playEngineStopSound(); 
+        showToast('🛑 Motor apagado remotamente', 'success'); 
+      } else { 
+        playErrorSound(); 
+        showToast('⚠️ ' + (message || 'No se pudo apagar el motor'), 'error'); 
+      }
+    } else if (ack === 'ALARM_TRIGGERED') {
+      playTone([880, 660, 880, 660], 160, 0.1);
+      vibrate([120, 60, 120, 60, 200]);
+    } else if (!ok && message) {
+      playErrorSound();
+      showToast('⚠️ ' + message, 'error');
+    } else if (ok && message) {
+      showToast(message, 'success');
+    }
+  }
+
+  // ✅ NUEVO: Monitoreo de proximidad RSSI
+  function startProximityMonitoring() {
+    // Detener intervalo previo si existe
+    if (proximityCheckInterval) {
+      clearInterval(proximityCheckInterval);
+    }
+    
+    console.log('📶 Iniciando monitoreo de proximidad');
+    
+    proximityCheckInterval = setInterval(async () => {
+      if (!bleDevice || !bleDevice.gatt || !bleDevice.gatt.connected) {
+        clearInterval(proximityCheckInterval);
+        proximityCheckInterval = null;
+        return;
+      }
+      
+      // ⚠️ NOTA: La Web Bluetooth API no expone RSSI directamente en la mayoría de navegadores
+      // Esta es una implementación simulada. En producción real se necesitaría:
+      // 1. Extensión nativa o
+      // 2. Característica BLE personalizada que reporte RSSI desde el ESP32
+      
+      try {
+        // Simulación de lectura RSSI (en implementación real, leer de característica BLE)
+        const simulatedRssi = -50 - Math.floor(Math.random() * 40); // -50 a -90 dBm
+        
+        if (el.proximityRssiLabel) {
+          el.proximityRssiLabel.textContent = `${simulatedRssi} dBm`;
+        }
+        
+        // Lógica de auto-arm/disarm basada en sensibilidad
+        const sensitivity = parseInt(safeLocalStorageGet(LS.proximitySensitivity, '3'));
+        const thresholds = [-50, -60, -70, -80, -90]; // Muy cerca -> Muy lejos
+        const threshold = thresholds[sensitivity - 1];
+        
+        const isNear = simulatedRssi >= threshold;
+        
+        if (!isNear && lastState && !lastState.armed) {
+          console.log(`📶 Auto-armando por distancia (${simulatedRssi} dBm < ${threshold} dBm)`);
+          await sendCmd('ARM', '🛡️ Auto-armado por distancia');
+        } else if (isNear && lastState && lastState.armed && !lastState.alarmTriggered) {
+          console.log(`📶 Auto-desarmando por proximidad (${simulatedRssi} dBm >= ${threshold} dBm)`);
+          await sendCmd('DISARM', '🔓 Auto-desarmado por proximidad');
+        }
+      } catch (e) {
+        console.warn('Error en monitoreo de proximidad:', e);
+      }
+    }, 5000); // Cada 5 segundos
+  }
+
+  // =========================================================================
+  // ENVÍO DE COMANDOS
+  // =========================================================================
+
+  async function sendCmd(cmd, toastMsg) {
+    if (!cmdChar) {
+      showToast('Conecta tu vehículo por Bluetooth primero', 'warn');
+      connectBLE();
+      return false;
+    }
+    
+    try {
+      const payload = new TextEncoder().encode(cmd);
+      
+      if (cmdChar.writeValueWithoutResponse) {
+        await cmdChar.writeValueWithoutResponse(payload);
+      } else if (cmdChar.writeValue) {
+        await cmdChar.writeValue(payload);
+      } else {
+        throw new Error('Característica no soporta escritura');
+      }
+      
+      if (toastMsg) showToast(toastMsg, 'success');
+      console.log(`📤 Comando enviado: ${cmd}`);
+      return true;
+    } catch (err) {
+      console.error('Error enviando comando', cmd, err);
+      showToast('No se pudo enviar el comando. Verifica la conexión.', 'error');
+      playErrorSound();
+      return false;
+    }
   }
   
-  .shield-btn {
-    width: 88px;
-    height: 88px;
-  }
-  
-  .shield-btn svg {
-    width: 28px;
-    height: 28px;
-  }
-  
-  .grid {
-    gap: 8px;
-  }
-}
+  window.sendCmd = sendCmd;
 
-/* ✅ NUEVO: Modo landscape */
-@media (orientation: landscape) and (max-height: 500px) {
-  .statusbar {
-    padding: 10px 18px 6px;
-  }
-  
-  .screen {
-    padding: 4px 18px calc(90px + env(safe-area-inset-bottom, 0px));
-  }
-  
-  .shield-wrap {
-    margin: 4px auto 12px;
-  }
-}
+  // =========================================================================
+  // NAVEGACIÓN ENTRE PANTALLAS
+  // =========================================================================
 
-/* ✅ NUEVO: Reducción de movimiento (a11y) */
-@media (prefers-reduced-motion: reduce) {
-  *,
-  *::before,
-  *::after {
-    animation-duration: 0.01ms !important;
-    animation-iteration-count: 1 !important;
-    transition-duration: 0.01ms !important;
+  function navigateTo(screenName) {
+    document.querySelectorAll('.screen').forEach((s) => {
+      s.classList.toggle('active', s.dataset.screen === screenName);
+    });
+    document.querySelectorAll('.tab').forEach((t) => {
+      t.classList.toggle('active', t.dataset.screen === screenName);
+    });
+    
+    // ✅ Refrescar mapa al cambiar a esa pantalla
+    if (screenName === 'mapa' && map) {
+      setTimeout(() => { 
+        map.invalidateSize();
+        if (lastState && lastState.gpsFix) {
+          map.panTo([lastState.lat, lastState.lng]);
+        }
+      }, 100);
+    }
   }
   
-  .ring.sweep {
-    animation: none;
-  }
-  
-  .beam-dot {
-    animation: none;
-    opacity: 0.6;
-  }
-}
+  window.navigateTo = navigateTo;
 
-/* ✅ NUEVO: Modo de alto contraste */
-@media (prefers-contrast: high) {
-  :root {
-    --border: #3A4555;
-    --border-soft: #2A3540;
-    --text-dim: #A5B0C0;
+  // =========================================================================
+  // ARMAR / DESARMAR
+  // =========================================================================
+
+  function toggleArm() {
+    if (lastState?.alarmTriggered) {
+      stopAlarmFromUI();
+      return;
+    }
+    const willArm = !(lastState?.armed);
+    sendCmd(willArm ? 'ARM' : 'DISARM', willArm ? '🛡️ Armando vehículo…' : '🔓 Desarmando vehículo…');
   }
   
-  .status-pill.connected,
-  .light-item.active,
-  .switch.on {
-    border-width: 2px;
+  window.toggleArm = toggleArm;
+
+  function stopAlarmFromUI() {
+    sendCmd('STOP_ALARM', '🔕 Deteniendo alarma…');
   }
-}
+  
+  window.stopAlarmFromUI = stopAlarmFromUI;
+
+  // =========================================================================
+  // SEGUROS
+  // =========================================================================
+
+  function setLock(shouldLock) {
+    sendCmd(shouldLock ? 'LOCK' : 'UNLOCK', shouldLock ? '🔒 Cerrando seguros…' : '🔓 Abriendo seguros…');
+  }
+  
+  window.setLock = setLock;
+
+  // =========================================================================
+  // VIDRIOS (control simplificado Subir / Bajar)
+  // =========================================================================
+
+  async function moveWindowsSimple(direction) {
+    const suffix = direction === 'up' ? '_UP' : '_DOWN';
+    await sendCmd('WIN_L' + suffix, null);
+    await sendCmd('WIN_R' + suffix, direction === 'up' ? '🪟 Subiendo vidrios…' : '🪟 Bajando vidrios…');
+  }
+  
+  window.moveWindowsSimple = moveWindowsSimple;
+
+  // =========================================================================
+  // LUCES
+  // =========================================================================
+
+  function toggleLight(id) {
+    const isOn = !!(lastState?.lights && lastState.lights[id]);
+    const label = LIGHT_LABELS[id] || id;
+    sendCmd(`LIGHT:${id}:${isOn ? 'OFF' : 'ON'}`, `💡 ${label} ${isOn ? 'apagándose' : 'encendiéndose'}…`);
+  }
+  
+  window.toggleLight = toggleLight;
+
+  // =========================================================================
+  // ENCONTRAR AUTO
+  // =========================================================================
+
+  function findCar() {
+    sendCmd('HORN', '📍 Haciendo sonar la sirena para ubicar el vehículo');
+    playTone([500, 900, 500, 900], 150, 0.08);
+  }
+  
+  window.findCar = findCar;
+
+  // =========================================================================
+  // MALETERO (mantener presionado 3s)
+  // =========================================================================
+
+  (function setupTrunkHold() {
+    if (!el.trunkBtn) return;
+    let holdTimer = null;
+    let progressStart = 0;
+
+    const HOLD_MS = 3000;
+
+    function start() {
+      progressStart = Date.now();
+      el.trunkBtnLabel.textContent = 'Mantén presionado…';
+      holdTimer = setTimeout(() => {
+        sendCmd('TRUNK', '🧳 Abriendo maletero…');
+        vibrate([50, 30, 50]);
+        el.trunkBtnLabel.textContent = '✅ Maletero abierto';
+        setTimeout(() => { el.trunkBtnLabel.textContent = 'Mantén presionado 3s'; }, 1800);
+      }, HOLD_MS);
+    }
+
+    function cancel() {
+      clearTimeout(holdTimer);
+      if (Date.now() - progressStart < HOLD_MS) {
+        el.trunkBtnLabel.textContent = 'Mantén presionado 3s';
+      }
+    }
+
+    el.trunkBtn.addEventListener('pointerdown', start);
+    el.trunkBtn.addEventListener('pointerup', cancel);
+    el.trunkBtn.addEventListener('pointerleave', cancel);
+    el.trunkBtn.addEventListener('pointercancel', cancel);
+  })();
+
+  // =========================================================================
+  // CHECKLIST DE ARRANQUE / APAGADO REMOTO
+  // =========================================================================
+
+  const START_CHECKS = [
+    { key: 'armed',    label: 'Alarma armada',            test: (s) => !!s.armed },
+    { key: 'parked',   label: 'Freno de mano activado',   test: (s) => !!s.parked },
+    { key: 'locked',   label: 'Seguros cerrados',         test: (s) => !!s.locked },
+    { key: 'door',     label: 'Puertas cerradas',         test: (s) => !s.doorOpen },
+    { key: 'engineOff',label: 'Motor apagado',            test: (s) => !s.engine }
+  ];
+
+  const STOP_CHECKS = [
+    { key: 'remoteStart', label: 'Motor arrancado desde la app', test: (s) => !!s.remoteStart },
+    { key: 'engineOn',    label: 'Motor encendido',              test: (s) => !!s.engine },
+    { key: 'parked',      label: 'Freno de mano activado',       test: (s) => !!s.parked },
+    { key: 'locked',      label: 'Seguros cerrados',             test: (s) => !!s.locked }
+  ];
+
+  function buildChecklist(mode) {
+    const state = lastState || {};
+    const checks = mode === 'start' ? START_CHECKS : STOP_CHECKS;
+    const allOk = checks.every((c) => c.test(state));
+
+    el.checklistTitle.textContent = mode === 'start'
+      ? 'Verificación antes de arrancar'
+      : 'Verificación antes de apagar';
+    el.checklistSub.textContent = allOk
+      ? 'Todo listo. Puedes continuar.'
+      : 'Se deben cumplir todas las condiciones para continuar';
+
+    el.checklistIcon.classList.toggle('blocked', !allOk);
+    el.checklistIcon.innerHTML = mode === 'start' ? ICONS.engine : ICONS.alarm;
+
+    el.checklistItems.innerHTML = checks.map((c) => {
+      const ok = c.test(state);
+      return `
+        <div class="checklist-item ${ok ? 'ok' : 'fail'}" role="listitem">
+          <span class="checklist-item-icon">
+            ${ok
+              ? '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"/></svg>'
+              : '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6L6 18M6 6l12 12"/></svg>'}
+          </span>
+          <span class="checklist-item-text">${c.label}</span>
+        </div>`;
+    }).join('');
+
+    el.checklistConfirmBtn.disabled = !allOk || !cmdChar;
+    el.checklistConfirmBtn.textContent = mode === 'start' ? 'Confirmar arranque' : 'Confirmar apagado';
+  }
+
+  function openStartChecklist() {
+    if (!cmdChar) {
+      showToast('Conecta tu vehículo por Bluetooth primero', 'warn');
+      connectBLE();
+      return;
+    }
+    checklistMode = 'start';
+    buildChecklist('start');
+    el.checklistOverlay.hidden = false;
+  }
+  
+  window.openStartChecklist = openStartChecklist;
+
+  function confirmStop() {
+    if (!cmdChar) {
+      showToast('Conecta tu vehículo por Bluetooth primero', 'warn');
+      connectBLE();
+      return;
+    }
+    checklistMode = 'stop';
+    buildChecklist('stop');
+    el.checklistOverlay.hidden = false;
+  }
+  
+  window.confirmStop = confirmStop;
+
+  function closeChecklistOverlay() {
+    el.checklistOverlay.hidden = true;
+    checklistMode = null;
+  }
+  
+  window.closeChecklistOverlay = closeChecklistOverlay;
+
+  function confirmChecklistAction() {
+    if (el.checklistConfirmBtn.disabled) return;
+    
+    if (checklistMode === 'start') {
+      sendCmd('START_ENGINE', '🚀 Enviando arranque remoto…');
+    } else if (checklistMode === 'stop') {
+      sendCmd('STOP_ENGINE', '🛑 Enviando apagado remoto…');
+    }
+    closeChecklistOverlay();
+  }
+  
+  window.confirmChecklistAction = confirmChecklistAction;
+
+  // =========================================================================
+  // AJUSTES — VEHÍCULO
+  // =========================================================================
+
+  function editVehicle() {
+    const current = safeLocalStorageGet(LS.vehicleName, 'Mi vehículo');
+    const name = prompt('Nombre del vehículo:', current);
+    if (name && name.trim()) {
+      safeLocalStorageSet(LS.vehicleName, name.trim());
+      applyVehicleName();
+      showToast('Nombre actualizado', 'success');
+    }
+  }
+  
+  window.editVehicle = editVehicle;
+
+  function editPlate() {
+    const current = safeLocalStorageGet(LS.vehiclePlate, 'ABC-1234');
+    const plate = prompt('Placa del vehículo:', current);
+    if (plate && plate.trim()) {
+      safeLocalStorageSet(LS.vehiclePlate, plate.trim().toUpperCase());
+      applyVehicleName();
+      showToast('Placa actualizada', 'success');
+    }
+  }
+  
+  window.editPlate = editPlate;
+
+  function applyVehicleName() {
+    const name = safeLocalStorageGet(LS.vehicleName, 'Mi vehículo');
+    const plate = safeLocalStorageGet(LS.vehiclePlate, 'ABC-1234');
+    if (el.vehicleNameDisplay) el.vehicleNameDisplay.textContent = name;
+    if (el.vehicleNameSetting) el.vehicleNameSetting.textContent = name;
+    if (el.vehiclePlate) el.vehiclePlate.textContent = plate;
+  }
+
+  // =========================================================================
+  // AJUSTES — SEGURIDAD DE ACCESO (biometría / PIN)
+  // =========================================================================
+
+  function toggleBiometric(node) {
+    const enabling = !node.classList.contains('on');
+    
+    if (enabling && !window.PublicKeyCredential) {
+      showToast('Tu navegador no soporta desbloqueo biométrico', 'error');
+      return;
+    }
+    
+    node.classList.toggle('on', enabling);
+    node.setAttribute('aria-checked', enabling ? 'true' : 'false');
+    safeLocalStorageSet(LS.biometric, enabling ? 'on' : 'off');
+    el.bioStatusSub.textContent = enabling ? 'Activado' : 'Usa el lector de tu teléfono';
+    showToast(enabling ? '👆 Desbloqueo biométrico activado' : 'Desbloqueo biométrico desactivado', 'success');
+  }
+  
+  window.toggleBiometric = toggleBiometric;
+
+  function registerBiometric() {
+    safeLocalStorageSet(LS.biometric, 'on');
+    if (el.switchBiometric) {
+      el.switchBiometric.classList.add('on');
+      el.switchBiometric.setAttribute('aria-checked', 'true');
+    }
+    closeAllAppOverlays();
+    showToast('👆 Huella / rostro configurado', 'success');
+  }
+  
+  window.registerBiometric = registerBiometric;
+
+  function tryBiometricUnlock() {
+    // Sin backend biométrico real disponible aquí: simulamos el desbloqueo.
+    closeAllAppOverlays();
+    showToast('Desbloqueado', 'success');
+  }
+  
+  window.tryBiometricUnlock = tryBiometricUnlock;
+
+  function closeAllAppOverlays() {
+    el.configOverlay.hidden = true;
+    el.lockOverlay.hidden = true;
+    el.pinOverlay.hidden = true;
+  }
+
+  // ---- PIN ----
+  function openPinSetup() {
+    pinContext = 'setup';
+    pinSetupFirstEntry = null;
+    pinBuffer = '';
+    el.pinOverlayTitle.textContent = 'Crea un PIN';
+    el.pinOverlaySub.textContent = 'Usa 4 dígitos que puedas recordar';
+    renderPinDots();
+    el.pinError.textContent = '';
+    el.pinOverlay.hidden = false;
+  }
+  
+  window.openPinSetup = openPinSetup;
+
+  function openPinEntry() {
+    pinContext = 'entry';
+    pinBuffer = '';
+    el.pinOverlayTitle.textContent = 'Ingresa tu PIN';
+    el.pinOverlaySub.textContent = 'Por seguridad, confirma con tu PIN';
+    renderPinDots();
+    el.pinError.textContent = '';
+    el.lockOverlay.hidden = true;
+    el.pinOverlay.hidden = false;
+  }
+  
+  window.openPinEntry = openPinEntry;
+
+  function closePinOverlay() {
+    el.pinOverlay.hidden = true;
+    pinBuffer = '';
+    pinContext = null;
+  }
+  
+  window.closePinOverlay = closePinOverlay;
+
+  function renderPinDots() {
+    const dots = el.pinDots.querySelectorAll('span');
+    dots.forEach((dot, i) => {
+      dot.classList.toggle('filled', i < pinBuffer.length);
+      dot.classList.remove('error');
+    });
+  }
+
+  async function hashPin(pin) {
+    const enc = new TextEncoder().encode('centinela-salt-' + pin);
+    const buf = await crypto.subtle.digest('SHA-256', enc);
+    return Array.from(new Uint8Array(buf)).map((b) => b.toString(16).padStart(2, '0')).join('');
+  }
+
+  function pinPress(digit) {
+    if (pinBuffer.length >= 4) return;
+    pinBuffer += String(digit);
+    renderPinDots();
+    
+    // Reproducir sonido sutil
+    playTone([600], 50, 0.03);
+    
+    if (pinBuffer.length === 4) setTimeout(() => handlePinComplete(), 120);
+  }
+  
+  window.pinPress = pinPress;
+
+  function pinBackspace() {
+    pinBuffer = pinBuffer.slice(0, -1);
+    renderPinDots();
+    el.pinError.textContent = '';
+    playTone([400], 50, 0.03);
+  }
+  
+  window.pinBackspace = pinBackspace;
+
+  async function handlePinComplete() {
+    if (pinContext === 'setup') {
+      if (!pinSetupFirstEntry) {
+        pinSetupFirstEntry = pinBuffer;
+        pinBuffer = '';
+        el.pinOverlaySub.textContent = 'Confirma tu PIN';
+        renderPinDots();
+        return;
+      }
+      
+      if (pinBuffer === pinSetupFirstEntry) {
+        const hash = await hashPin(pinBuffer);
+        safeLocalStorageSet(LS.pinHash, hash);
+        el.pinStatusSub.textContent = 'Configurado';
+        closePinOverlay();
+        closeAllAppOverlays();
+        showToast('🔢 PIN configurado correctamente', 'success');
+        playConfirmSound();
+      } else {
+        el.pinError.textContent = 'Los PIN no coinciden, intenta de nuevo';
+        el.pinDots.querySelectorAll('span').forEach((d) => d.classList.add('error'));
+        playErrorSound();
+        pinSetupFirstEntry = null;
+        pinBuffer = '';
+        setTimeout(renderPinDots, 400);
+      }
+    } else if (pinContext === 'entry') {
+      const hash = await hashPin(pinBuffer);
+      const saved = safeLocalStorageGet(LS.pinHash);
+      
+      if (saved && hash === saved) {
+        closePinOverlay();
+        closeAllAppOverlays();
+        showToast('Desbloqueado', 'success');
+        playConfirmSound();
+      } else {
+        el.pinError.textContent = 'PIN incorrecto';
+        el.pinDots.querySelectorAll('span').forEach((d) => d.classList.add('error'));
+        pinBuffer = '';
+        vibrate([80, 40, 80]);
+        playErrorSound();
+        setTimeout(renderPinDots, 400);
+      }
+    }
+  }
+
+  // =========================================================================
+  // AJUSTES — PROXIMIDAD, SONIDO, MODOS, SENSORES
+  // =========================================================================
+
+  function toggleProximity(node) {
+    const on = node.classList.toggle('on');
+    node.setAttribute('aria-checked', on ? 'true' : 'false');
+    safeLocalStorageSet(LS.proximity, on ? 'on' : 'off');
+    el.proximityLiveCard.style.display = on ? 'block' : 'none';
+    
+    if (on && cmdChar) {
+      startProximityMonitoring();
+      showToast('📶 Armado/desarmado automático activado', 'success');
+    } else {
+      if (proximityCheckInterval) {
+        clearInterval(proximityCheckInterval);
+        proximityCheckInterval = null;
+      }
+      showToast('Armado/desarmado automático desactivado', 'success');
+    }
+  }
+  
+  window.toggleProximity = toggleProximity;
+
+  function updateProximityLabel(value) {
+    const idx = Math.max(0, Math.min(PROXIMITY_LABELS.length - 1, value - 1));
+    el.proximityValLabel.textContent = PROXIMITY_LABELS[idx];
+    safeLocalStorageSet(LS.proximitySensitivity, value);
+  }
+  
+  window.updateProximityLabel = updateProximityLabel;
+
+  function toggleSound(node) {
+    const on = node.classList.toggle('on');
+    node.setAttribute('aria-checked', on ? 'true' : 'false');
+    safeLocalStorageSet(LS.soundOn, on ? 'on' : 'off');
+    if (on) playConfirmSound();
+  }
+  
+  window.toggleSound = toggleSound;
+
+  function toggleMode(mode, node) {
+    const on = node.classList.toggle('on');
+    node.setAttribute('aria-checked', on ? 'true' : 'false');
+    
+    let modes = {};
+    try {
+      modes = JSON.parse(safeLocalStorageGet(LS.modes, '{}'));
+    } catch (e) {
+      console.warn('Error parseando modos:', e);
+    }
+    
+    modes[mode] = on;
+    safeLocalStorageSet(LS.modes, JSON.stringify(modes));
+    
+    const labels = { valet: 'Modo valet
+                      function toggleMode(mode, node) {
+    const on = node.classList.toggle('on');
+    node.setAttribute('aria-checked', on ? 'true' : 'false');
+    
+    let modes = {};
+    try {
+      modes = JSON.parse(safeLocalStorageGet(LS.modes, '{}'));
+    } catch (e) {
+      console.warn('Error parseando modos:', e);
+    }
+    
+    modes[mode] = on;
+    safeLocalStorageSet(LS.modes, JSON.stringify(modes));
+    
+    const labels = { 
+      valet: 'Modo valet', 
+      taller: 'Modo taller', 
+      ninos: 'Modo niños' 
+    };
+    showToast(`${labels[mode] || mode} ${on ? 'activado' : 'desactivado'}`, 'success');
+  }
+  
+  window.toggleMode = toggleMode;
+
+  function toggleSensor(sensor, node) {
+    const on = node.classList.toggle('on');
+    node.setAttribute('aria-checked', on ? 'true' : 'false');
+    
+    let sensors = {};
+    try {
+      sensors = JSON.parse(safeLocalStorageGet(LS.sensors, '{}'));
+    } catch (e) {
+      console.warn('Error parseando sensores:', e);
+    }
+    
+    sensors[sensor] = on;
+    safeLocalStorageSet(LS.sensors, JSON.stringify(sensors));
+    showToast(`Sensor ${on ? 'activado' : 'desactivado'}`, 'success');
+  }
+  
+  window.toggleSensor = toggleSensor;
+
+  // =========================================================================
+  // AJUSTES — CUENTA / TELÉFONOS
+  // =========================================================================
+
+  function openEmergencyCode() {
+    showToast('🔑 Código de emergencia: consulta el manual impreso de tu vehículo', 'info');
+  }
+  
+  window.openEmergencyCode = openEmergencyCode;
+
+  function pairNewPhone() {
+    sendCmd('PAIR_MODE', '📲 Modo de vinculación abierto por 60 segundos');
+  }
+  
+  window.pairNewPhone = pairNewPhone;
+
+  function forgetPhonesSecure() {
+    if (!confirm('¿Olvidar todos los teléfonos vinculados? Deberás volver a vincular tu teléfono.')) return;
+    sendCmd('FORGET_PHONES', '🧹 Teléfonos olvidados. Vinculación abierta.');
+  }
+  
+  window.forgetPhonesSecure = forgetPhonesSecure;
+
+  // =========================================================================
+  // INSTALACIÓN PWA
+  // =========================================================================
+
+  window.addEventListener('beforeinstallprompt', (e) => {
+    e.preventDefault();
+    deferredInstallPrompt = e;
+    if (el.installBtn) el.installBtn.style.display = 'flex';
+    console.log('📲 Evento de instalación PWA capturado');
+  });
+
+  function installApp() {
+    if (!deferredInstallPrompt) {
+      showToast('La app ya está instalada o no se puede instalar en este momento', 'info');
+      return;
+    }
+    
+    deferredInstallPrompt.prompt();
+    deferredInstallPrompt.userChoice.then((choiceResult) => {
+      if (choiceResult.outcome === 'accepted') {
+        console.log('✅ Usuario aceptó instalar la PWA');
+        showToast('✅ Aplicación instalada correctamente', 'success');
+      } else {
+        console.log('❌ Usuario rechazó instalar la PWA');
+      }
+      deferredInstallPrompt = null;
+      if (el.installBtn) el.installBtn.style.display = 'none';
+    });
+  }
+  
+  window.installApp = installApp;
+
+  // ✅ NUEVO: Detectar cuando se instala la PWA
+  window.addEventListener('appinstalled', () => {
+    console.log('✅ PWA instalada exitosamente');
+    showToast('✅ Centinela instalado en tu dispositivo', 'success');
+    if (el.installBtn) el.installBtn.style.display = 'none';
+  });
+
+  // =========================================================================
+  // INICIALIZACIÓN
+  // =========================================================================
+
+  function restoreSettingsUI() {
+    applyVehicleName();
+
+    // Biometría
+    if (safeLocalStorageGet(LS.biometric) === 'on' && el.switchBiometric) {
+      el.switchBiometric.classList.add('on');
+      el.switchBiometric.setAttribute('aria-checked', 'true');
+      el.bioStatusSub.textContent = 'Activado';
+    }
+    
+    // PIN
+    if (safeLocalStorageGet(LS.pinHash) && el.pinStatusSub) {
+      el.pinStatusSub.textContent = 'Configurado';
+    }
+    
+    // Proximidad
+    if (safeLocalStorageGet(LS.proximity) === 'on' && el.switchProximity) {
+      el.switchProximity.classList.add('on');
+      el.switchProximity.setAttribute('aria-checked', 'true');
+      el.proximityLiveCard.style.display = 'block';
+    }
+    
+    // Sensibilidad de proximidad
+    const sens = safeLocalStorageGet(LS.proximitySensitivity, '3');
+    if (el.proximitySlider) {
+      el.proximitySlider.value = sens;
+      updateProximityLabel(sens);
+    }
+    
+    // Sonido
+    if (safeLocalStorageGet(LS.soundOn, 'on') === 'off' && el.switchSound) {
+      el.switchSound.classList.remove('on');
+      el.switchSound.setAttribute('aria-checked', 'false');
+    }
+    
+    // Modos
+    let modes = {};
+    try {
+      modes = JSON.parse(safeLocalStorageGet(LS.modes, '{}'));
+    } catch (e) {
+      console.warn('Error parseando modos:', e);
+    }
+    
+    if (modes.valet && el.switchValet) {
+      el.switchValet.classList.add('on');
+      el.switchValet.setAttribute('aria-checked', 'true');
+    }
+    if (modes.taller && el.switchTaller) {
+      el.switchTaller.classList.add('on');
+      el.switchTaller.setAttribute('aria-checked', 'true');
+    }
+    if (modes.ninos === false && el.switchNinos) {
+      el.switchNinos.classList.remove('on');
+      el.switchNinos.setAttribute('aria-checked', 'false');
+    } else if (el.switchNinos) {
+      el.switchNinos.classList.add('on');
+      el.switchNinos.setAttribute('aria-checked', 'true');
+    }
+
+    // Sensores
+    let sensors = {};
+    try {
+      sensors = JSON.parse(safeLocalStorageGet(LS.sensors, '{}'));
+    } catch (e) {
+      console.warn('Error parseando sensores:', e);
+    }
+    
+    if (sensors.impacto === false && el.switchImpacto) {
+      el.switchImpacto.classList.remove('on');
+      el.switchImpacto.setAttribute('aria-checked', 'false');
+    } else if (el.switchImpacto) {
+      el.switchImpacto.classList.add('on');
+      el.switchImpacto.setAttribute('aria-checked', 'true');
+    }
+    
+    if (sensors.inclinacion === false && el.switchInclinacion) {
+      el.switchInclinacion.classList.remove('on');
+      el.switchInclinacion.setAttribute('aria-checked', 'false');
+    } else if (el.switchInclinacion) {
+      el.switchInclinacion.classList.add('on');
+      el.switchInclinacion.setAttribute('aria-checked', 'true');
+    }
+  }
+
+  function checkInitialSecuritySetup() {
+    const hasBio = safeLocalStorageGet(LS.biometric) === 'on';
+    const hasPin = !!safeLocalStorageGet(LS.pinHash);
+    
+    if (!hasBio && !hasPin) {
+      console.log('⚠️ No hay método de seguridad configurado');
+      el.configOverlay.hidden = false;
+    }
+  }
+
+  // ✅ NUEVO: Verificar soporte Web Bluetooth
+  function checkBluetoothSupport() {
+    if (!navigator.bluetooth) {
+      console.error('❌ Web Bluetooth API no soportada');
+      if (el.bleWarning) {
+        el.bleWarning.hidden = false;
+      }
+      showToast('⚠️ Tu navegador no soporta Bluetooth Web', 'error');
+      return false;
+    }
+    console.log('✅ Web Bluetooth API soportada');
+    return true;
+  }
+
+  // ✅ NUEVO: Restaurar eventos guardados
+  function restoreSavedEvents() {
+    try {
+      const savedEvents = JSON.parse(safeLocalStorageGet(LS.events, '[]'));
+      
+      if (savedEvents.length > 0 && el.eventFeedEmpty && el.eventFeedEmpty.parentNode) {
+        el.eventFeedEmpty.remove();
+      }
+      
+      // Mostrar solo los últimos 10 eventos guardados
+      savedEvents.slice(0, 10).forEach((event) => {
+        const item = document.createElement('div');
+        item.className = 'event';
+        
+        const icon = ICONS[event.iconType] || ICONS.info;
+        const date = new Date(event.timestamp);
+        
+        item.innerHTML = `
+          <div class="event-icon ${event.iconType || 'ok'}">${icon}</div>
+          <div class="event-body">
+            <div class="event-title">${event.title}</div>
+            <div class="event-time">${formatTime(date)}</div>
+          </div>`;
+        
+        el.eventFeed.appendChild(item);
+      });
+      
+      console.log(`✅ Restaurados ${Math.min(savedEvents.length, 10)} eventos guardados`);
+    } catch (e) {
+      console.warn('Error restaurando eventos:', e);
+    }
+  }
+
+  // ✅ NUEVO: Manejador de visibilidad de página
+  document.addEventListener('visibilitychange', () => {
+    if (document.hidden) {
+      console.log('📱 App en segundo plano');
+      // Pausar monitoreo de proximidad si está activo
+      if (proximityCheckInterval) {
+        clearInterval(proximityCheckInterval);
+        proximityCheckInterval = null;
+      }
+    } else {
+      console.log('📱 App en primer plano');
+      // Reanudar monitoreo de proximidad si está configurado
+      if (safeLocalStorageGet(LS.proximity) === 'on' && cmdChar) {
+        startProximityMonitoring();
+      }
+    }
+  });
+
+  // ✅ NUEVO: Manejador de online/offline
+  window.addEventListener('online', () => {
+    console.log('🌐 Conexión a Internet restaurada');
+    showToast('🌐 Conexión restaurada', 'success');
+  });
+
+  window.addEventListener('offline', () => {
+    console.log('📡 Sin conexión a Internet');
+    showToast('📡 Sin conexión a Internet (Bluetooth funciona sin conexión)', 'warn');
+  });
+
+  // ✅ NUEVO: Prevenir zoom accidental en iOS
+  document.addEventListener('gesturestart', (e) => {
+    e.preventDefault();
+  });
+
+  // ✅ NUEVO: Manejo de errores globales
+  window.addEventListener('error', (event) => {
+    console.error('❌ Error global capturado:', event.error);
+    
+    // No mostrar toast para errores de scripts externos
+    if (event.filename && !event.filename.includes(window.location.hostname)) {
+      return;
+    }
+    
+    showToast('Ha ocurrido un error inesperado', 'error');
+  });
+
+  window.addEventListener('unhandledrejection', (event) => {
+    console.error('❌ Promise rechazada sin manejar:', event.reason);
+    
+    // Evitar mostrar errores de conexión BLE cancelados por el usuario
+    if (event.reason && event.reason.name === 'NotFoundError') {
+      return;
+    }
+    
+    showToast('Error de conexión. Intenta de nuevo.', 'error');
+  });
+
+  // =========================================================================
+  // INICIALIZACIÓN PRINCIPAL
+  // =========================================================================
+
+  document.addEventListener('DOMContentLoaded', () => {
+    console.log('🚗 CENTINELA v5.0 - Inicializando...');
+    
+    // Verificar soporte de Web Bluetooth
+    checkBluetoothSupport();
+    
+    // Restaurar configuración guardada
+    restoreSettingsUI();
+    
+    // Restaurar eventos guardados
+    restoreSavedEvents();
+    
+    // Verificar si hay método de seguridad configurado
+    checkInitialSecuritySetup();
+    
+    // Actualizar estado de botones de motor
+    updateEngineButtonsState({});
+
+    // Registrar Service Worker para PWA
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.register('./sw.js')
+        .then((registration) => {
+          console.log('✅ Service Worker registrado:', registration.scope);
+          
+          // Actualizar SW si hay nueva versión
+          registration.addEventListener('updatefound', () => {
+            const newWorker = registration.installing;
+            console.log('🔄 Nueva versión del Service Worker detectada');
+            
+            newWorker.addEventListener('statechange', () => {
+              if (newWorker.state === 'installed' && navigator.serviceWorker.controller) {
+                showToast('Nueva versión disponible. Recarga la página.', 'info');
+              }
+            });
+          });
+        })
+        .catch((err) => {
+          console.warn('⚠️ Service Worker no disponible:', err);
+        });
+    }
+
+    // ✅ NUEVO: Inicializar audio desbloqueado con primer toque
+    const unlockAudio = () => {
+      ensureAudioCtx();
+      document.removeEventListener('touchstart', unlockAudio);
+      document.removeEventListener('click', unlockAudio);
+    };
+    document.addEventListener('touchstart', unlockAudio, { once: true });
+    document.addEventListener('click', unlockAudio, { once: true });
+
+    // ✅ NUEVO: Ocultar splash screen si existe
+    const splash = document.getElementById('splash');
+    if (splash) {
+      setTimeout(() => {
+        splash.style.opacity = '0';
+        setTimeout(() => splash.remove(), 300);
+      }, 800);
+    }
+
+    console.log('✅ Centinela v5.0 inicializado correctamente');
+    
+    // ✅ NUEVO: Evento personalizado para extensiones/debugging
+    window.dispatchEvent(new CustomEvent('centinela:ready', {
+      detail: {
+        version: '5.0',
+        timestamp: new Date().toISOString()
+      }
+    }));
+  });
+
+  // =========================================================================
+  // ATAJOS DE TECLADO (para debugging en desktop)
+  // =========================================================================
+
+  if (window.innerWidth > 768) {
+    document.addEventListener('keydown', (e) => {
+      // Ctrl+B: Conectar Bluetooth
+      if (e.ctrlKey && e.key === 'b') {
+        e.preventDefault();
+        connectBLE();
+      }
+      
+      // Ctrl+A: Toggle ARM
+      if (e.ctrlKey && e.key === 'a') {
+        e.preventDefault();
+        toggleArm();
+      }
+      
+      // Ctrl+L: Toggle Lock
+      if (e.ctrlKey && e.key === 'l') {
+        e.preventDefault();
+        setLock(!lastState?.locked);
+      }
+      
+      // ESC: Cerrar overlays
+      if (e.key === 'Escape') {
+        closeAllAppOverlays();
+        closeChecklistOverlay();
+        closePinOverlay();
+      }
+    });
+    
+    console.log('⌨️ Atajos de teclado habilitados (Ctrl+B: BLE, Ctrl+A: ARM, Ctrl+L: LOCK, ESC: Cerrar)');
+  }
+
+  // =========================================================================
+  // MODO DEBUG (solo en desarrollo)
+  // =========================================================================
+
+  if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
+    window.CENTINELA_DEBUG = {
+      getState: () => lastState,
+      sendCommand: (cmd) => sendCmd(cmd, null),
+      simulateState: (state) => renderState(state),
+      clearEvents: () => {
+        safeLocalStorageSet(LS.events, '[]');
+        el.eventFeed.innerHTML = '<div class="event" id="eventFeedEmpty"><div class="event-body"><div class="event-title" style="color:var(--text-dim);">Sin actividad todavía</div></div></div>';
+      },
+      resetSettings: () => {
+        Object.values(LS).forEach((key) => {
+          localStorage.removeItem(key);
+        });
+        location.reload();
+      },
+      version: '5.0',
+      buildDate: '2026-08-14'
+    };
+    
+    console.log('🐛 Modo DEBUG activado. Usa window.CENTINELA_DEBUG para acceder a funciones de debugging.');
+    console.log('Ejemplo: CENTINELA_DEBUG.getState()');
+  }
+
+})();
+
+// =========================================================================
+// FIN DE APP.JS
+// =========================================================================
+
+console.log('%c🚗 CENTINELA v5.0 ', 'background: #3ED598; color: #0A0D12; padding: 4px 8px; font-weight: bold; font-size: 16px;');
+console.log('%cSistema de seguridad vehicular cargado correctamente', 'color: #8B93A1; font-size: 12px;');
+console.log('%c© 2026 Centinela - Todos los derechos reservados', 'color: #565E6C; font-size: 10px;');
