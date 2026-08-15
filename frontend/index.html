@@ -1,0 +1,835 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport"
+          content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+    <meta name="theme-color" content="#0A0D12" id="themeColorMeta">
+    <meta name="description"
+          content="Centinela v5.0 — Control remoto y seguridad de tu vehículo">
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="Centinela v5.0">
+    <title>Centinela v5.0</title>
+    <!-- ========================= PWA ========================= -->
+    <link rel="manifest" href="./manifest.json">
+    <!-- ========================= MAPA ========================= -->
+    <link rel="stylesheet"
+          href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+    <script
+        src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+        defer>
+    </script>
+    <!-- ========================= FUENTES ========================= -->
+    <link rel="preconnect"
+          href="https://fonts.googleapis.com">
+    <link rel="preconnect"
+          href="https://fonts.gstatic.com"
+          crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Rajdhani:wght@500;600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500;600&display=swap"
+          rel="stylesheet">
+    <!-- ========================= CSS NUEVA ESTRUCTURA ========================= -->
+    <link rel="stylesheet" href="./css/main.css">
+    <link rel="stylesheet" href="./css/control.css">
+    <link rel="stylesheet" href="./css/dashboard.css">
+    <!-- ========================= ESTILOS CRÍTICOS ========================= -->
+    <style>
+        *{
+            margin:0;
+            padding:0;
+            box-sizing:border-box;
+        }
+        body{
+            background:#0A0D12;
+            color:#E8EDF5;
+            font-family:
+            'Inter',
+            -apple-system,
+            BlinkMacSystemFont,
+            sans-serif;
+            overflow:hidden;
+            height:100vh;
+            width:100vw;
+            position:fixed;
+            user-select:none;
+            -webkit-user-select:none;
+        }
+        .app{
+            display:flex;
+            flex-direction:column;
+            height:100vh;
+            max-width:480px;
+            margin:0 auto;
+            position:relative;
+            background:#0A0D12;
+            overflow:hidden;
+        }
+        .screens{
+            flex:1;
+            overflow-y:auto;
+            overflow-x:hidden;
+            -webkit-overflow-scrolling:touch;
+            scroll-behavior:smooth;
+        }
+        .screen{
+            display:none;
+            padding:
+            16px
+            16px
+            90px
+            16px;
+            min-height:100%;
+        }
+        .screen.active{
+            display:block;
+        }
+        .install-btn-container{
+            display:none !important;
+        }
+    </style>
+</head>
+<body>
+    <!-- ========================= ADVERTENCIA BLUETOOTH ========================= -->
+<div class="ble-warning" id="bleWarning" hidden>
+    <div class="ble-warning-content">
+        <svg viewBox="0 0 24 24"
+             fill="none"
+             stroke="currentColor"
+             stroke-width="2">
+            <path d="M12 9v4M12 17h.01M10.3 3.9L2.5 17a2 2 0 001.7 3h15.6a2 2 0 001.7-3L13.7 3.9a2 2 0 00-3.4 0z"/>
+        </svg>
+        <div>
+            <strong>Navegador no compatible</strong>
+            <p>
+                Centinela requiere Web Bluetooth.
+                Usa Chrome o Edge.
+            </p>
+        </div>
+    </div>
+</div>
+<!-- ========================= APP PRINCIPAL ========================= -->
+<div class="app"
+     id="app"
+     data-armed="false"
+     data-alarm="false">
+<!-- ========================= BARRA SUPERIOR ========================= -->
+<header class="statusbar">
+    <div class="brand">
+        <div class="brand-mark">
+            <svg viewBox="0 0 24 24"
+                 fill="none"
+                 stroke="#0A0D12"
+                 stroke-width="2.5">
+                <path d="M12 2l8 3v6c0 5-3.4 8.4-8 11-4.6-2.6-8-6-8-11V5l8-3z"/>
+            </svg>
+        </div>
+        <div class="brand-name">
+            CENTINELA
+        </div>
+        <div class="brand-version">
+            v5.0
+        </div>
+    </div>
+    <div class="statusbar-right">
+        <button
+            class="alarm-badge"
+            id="alarmBadge"
+            hidden
+            onclick="stopAlarmFromUI()">
+            <span class="alarm-badge-dot"></span>
+            <span id="alarmBadgeText">
+                ALARMA
+            </span>
+        </button>
+        <button
+            class="status-pill"
+            id="statusPill"
+            onclick="connectBLE()">
+            <span
+                class="dot"
+                id="statusDot">
+            </span>
+            <span id="statusPillText">
+                Sin conexión
+            </span>
+        </button>
+    </div>
+</header>
+<!-- ========================= CONTENEDOR DE PANTALLAS ========================= -->
+<main class="screens"
+      id="screensContainer">
+<!-- ========================= INICIO ========================= -->
+<section class="screen active"
+         id="screen-inicio"
+         data-screen="inicio">
+<div class="eyebrow">
+    <span id="vehicleNameDisplay">
+        Mi vehículo
+    </span>
+    <span class="version-tag">
+        v5.0
+    </span>
+</div>
+<h1 class="screen-title">
+Panel de control
+</h1>
+<div class="shield-wrap">
+<button
+class="shield-btn"
+id="shieldBtn"
+onclick="toggleArm()">
+<svg viewBox="0 0 24 24"
+     fill="none"
+     stroke="currentColor"
+     stroke-width="2">
+<path d="M12 2l8 3v6c0 5-3.4 8.4-8 11-4.6-2.6-8-6-8-11V5l8-3z"/>
+</svg>
+<span id="shieldLabel">
+DESARMADO
+</span>
+</button>
+</div>
+<p class="shield-sub">
+Sistema
+<b id="shieldSubState">
+inactivo
+</b>
+· puertas
+<b id="doorStatus">
+cerradas
+</b>
+</p>
+<div class="grid">
+<div class="stat">
+<div class="stat-label">
+Batería
+</div>
+<div class="stat-value"
+     id="statBattery">
+—
+</div>
+</div>
+<div class="stat">
+<div class="stat-label">
+Motor
+</div>
+<div class="stat-value"
+     id="statMotorTemp">
+—
+</div>
+</div>
+<div class="stat">
+<div class="stat-label">
+Combustible
+</div>
+<div class="stat-value"
+     id="statFuel">
+—
+</div>
+</div>
+<div class="stat">
+<div class="stat-label">
+GPS
+</div>
+<div class="stat-value"
+     id="statGps">
+—
+</div>
+</div>
+</div>
+<div class="section-head">
+<h2>
+Actividad reciente
+</h2>
+<a onclick="navigateTo('mapa')">
+Ver mapa →
+</a>
+</div>
+<div id="eventFeed">
+<div class="event">
+<div class="event-body">
+<div class="event-title">
+Sin actividad todavía
+</div>
+<div class="event-time">
+Vincula tu vehículo para comenzar
+</div>
+</div>
+</div>
+</div>
+</section>
+<!-- ========================= MAPA ========================= -->
+<section class="screen"
+         id="screen-mapa"
+         data-screen="mapa">
+<div class="eyebrow">
+    Ubicación
+</div>
+<h1 class="screen-title">
+    Rastreo GPS
+</h1>
+<div class="map-card">
+    <div id="map"
+         class="map-geo loading">
+    </div>
+    <div class="map-badge">
+        <span id="mapAddress">
+            Ubicación desconocida
+        </span>
+        ·
+        <b id="mapSpeed">
+            0 km/h
+        </b>
+        ·
+        <span id="mapStatus">
+            sin señal GPS
+        </span>
+    </div>
+</div>
+<div class="list-row">
+<div>
+<div class="list-row-label">
+Geocerca "Casa"
+</div>
+<div class="list-row-sub">
+Radio 150 m · notificar al salir
+</div>
+</div>
+<div class="switch on"></div>
+</div>
+<div class="list-row">
+<div>
+<div class="list-row-label">
+Exceso de velocidad
+</div>
+<div class="list-row-sub">
+Límite configurable
+</div>
+</div>
+<div class="switch on"></div>
+</div>
+</section>
+<!-- ========================= CONTROL ========================= -->
+<section class="screen"
+         id="screen-control"
+         data-screen="control">
+<div class="eyebrow">
+Control remoto
+</div>
+<h1 class="screen-title">
+Acciones rápidas
+</h1>
+<button class="key-link"
+        id="keyLinkCard"
+        onclick="connectBLE()">
+<div class="key-link-status">
+
+<div class="key-link-title"
+     id="keyLinkTitle">
+
+📱 Toca para conectar Bluetooth
+
+</div>
+
+
+<div class="key-link-sub"
+     id="keyLinkSub">
+
+Sin conexión
+
+</div>
+
+
+</div>
+
+
+</button>
+
+
+
+
+
+<div class="section-head">
+
+<h2>
+Seguros
+</h2>
+
+</div>
+
+
+
+<div class="segmented">
+
+
+<button
+class="segmented-btn active"
+id="lockBtnClosed"
+onclick="setLock(true)">
+
+Cerrar
+
+</button>
+
+
+<button
+class="segmented-btn"
+id="lockBtnOpen"
+onclick="setLock(false)">
+
+Abrir
+
+</button>
+
+
+</div>
+
+
+
+
+
+
+<div class="section-head">
+
+<h2>
+Luces
+</h2>
+
+</div>
+
+
+
+
+
+<div class="light-grid">
+
+
+
+<button class="light-item"
+        onclick="toggleLight('LOWBEAM')">
+
+Bajas
+
+</button>
+
+
+
+<button class="light-item"
+        onclick="toggleLight('HIGHBEAM')">
+
+Altas
+
+</button>
+
+
+
+
+<button class="light-item"
+        onclick="toggleLight('TURN_L')">
+
+Direccional izquierda
+
+</button>
+
+
+
+
+<button class="light-item"
+        onclick="toggleLight('TURN_R')">
+
+Direccional derecha
+
+</button>
+
+
+
+</div>
+
+
+
+
+
+
+<div class="section-head">
+
+<h2>
+Acciones
+</h2>
+
+
+</div>
+
+
+
+
+
+<div class="ctrl-grid">
+
+
+<button class="ctrl-btn"
+        onclick="findCar()">
+
+Encontrar vehículo
+
+</button>
+
+
+
+
+<button class="ctrl-btn danger"
+        onclick="sendCmd('HORN','Sirena')">
+
+🚨 Sirena
+
+</button>
+
+
+
+
+<button class="ctrl-btn danger"
+        onclick="confirmStop()">
+
+Apagar motor
+
+</button>
+
+
+
+</div>
+
+
+
+</section>
+
+
+
+
+
+
+
+
+<!-- ========================= CAMARA ========================= -->
+
+
+<section class="screen"
+         id="screen-camara"
+         data-screen="camara">
+
+
+<div class="eyebrow">
+Vigilancia
+</div>
+
+
+<h1 class="screen-title">
+Cámaras
+</h1>
+
+
+
+
+<div class="cam-feed">
+
+
+<p>
+Vista previa no disponible sin conexión
+</p>
+
+
+</div>
+
+
+
+</section>
+
+
+
+
+
+
+
+
+<!-- ========================= AJUSTES ========================= -->
+
+
+<section class="screen"
+         id="screen-ajustes"
+         data-screen="ajustes">
+
+
+
+<div class="eyebrow">
+Configuración
+</div>
+
+
+
+<h1 class="screen-title">
+Ajustes
+</h1>
+
+
+
+
+
+<div class="settings-group">
+
+
+<h3>
+Vehículo
+</h3>
+
+
+
+<button class="list-row"
+        onclick="editVehicle()">
+
+
+
+<div>
+
+
+<div class="list-row-label">
+
+Nombre vehículo
+
+</div>
+
+
+<div class="list-row-sub"
+     id="vehicleNameSetting">
+
+Mi vehículo
+
+</div>
+
+
+</div>
+
+
+
+</button>
+
+
+
+</div>
+
+
+
+
+
+
+
+<div class="settings-group">
+
+
+<h3>
+Seguridad
+</h3>
+
+
+
+<div class="list-row">
+
+
+<div>
+
+
+<div class="list-row-label">
+
+Biometría
+
+</div>
+
+
+<div class="list-row-sub">
+
+Huella / rostro
+
+</div>
+
+
+</div>
+
+
+<button class="switch"
+        id="switchBiometric">
+
+</button>
+
+
+</div>
+
+
+
+</div>
+
+
+
+
+
+
+<div class="settings-group">
+
+
+<h3>
+Sensores
+</h3>
+
+
+
+<div class="list-row">
+
+<div>
+
+<div class="list-row-label">
+
+Impacto
+
+</div>
+
+
+<div class="list-row-sub">
+
+Sensor activo
+
+</div>
+
+
+</div>
+
+
+
+<button class="switch on">
+
+</button>
+
+
+
+</div>
+
+
+
+
+<div class="list-row">
+
+<div>
+
+<div class="list-row-label">
+
+Inclinación
+
+</div>
+
+
+<div class="list-row-sub">
+
+Anti sabotaje
+
+</div>
+
+
+</div>
+
+
+
+<button class="switch on">
+
+</button>
+
+
+
+</div>
+
+
+</div>
+
+
+
+</section>
+
+</main>
+
+<!-- ========================= BARRA DE NAVEGACIÓN ========================= -->
+
+<nav class="tabbar" id="tabbar">
+<a class="tab active" data-screen="inicio" href="#inicio" onclick="navigateTo('inicio')">
+<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 11l9-8 9 8M5 10v10h14V10"/></svg>
+<span>Inicio</span>
+</a>
+<a class="tab" data-screen="mapa" href="#mapa" onclick="navigateTo('mapa')">
+<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 6l7-3 8 3 7-3v15l-7 3-8-3-7 3z"/></svg>
+<span>Mapa</span>
+</a>
+<a class="tab" data-screen="control" href="#control" onclick="navigateTo('control')">
+<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="3"/></svg>
+<span>Control</span>
+</a>
+<a class="tab" data-screen="camara" href="#camara" onclick="navigateTo('camara')">
+<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="6" width="15" height="12" rx="2"/><path d="M17 10l5-3v10l-5-3"/></svg>
+<span>Cámara</span>
+</a>
+<a class="tab" data-screen="ajustes" href="#ajustes" onclick="navigateTo('ajustes')">
+<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 11-2.83 2.83l-.06-.06a1.65 1.65 0 00-1.82-.33"/></svg>
+<span>Ajustes</span>
+</a>
+</nav>
+
+<div class="toast" id="toast" role="alert" aria-live="assertive"></div>
+
+</div>
+
+<!-- ========================= OVERLAYS ========================= -->
+
+<div class="overlay" id="pinOverlay" hidden>
+<div class="modal-card">
+<div class="lock-title">Ingresa tu PIN</div>
+<div class="lock-sub">Confirma con tu PIN de 4 dígitos</div>
+<div class="pin-dots" id="pinDots"><span></span><span></span><span></span><span></span></div>
+<div class="pin-error" id="pinError"></div>
+<div class="pin-pad" id="pinPad">
+<button onclick="pinPress(1)">1</button><button onclick="pinPress(2)">2</button><button onclick="pinPress(3)">3</button>
+<button onclick="pinPress(4)">4</button><button onclick="pinPress(5)">5</button><button onclick="pinPress(6)">6</button>
+<button onclick="pinPress(7)">7</button><button onclick="pinPress(8)">8</button><button onclick="pinPress(9)">9</button>
+<button disabled></button><button onclick="pinPress(0)">0</button><button onclick="pinBackspace()">⌫</button>
+</div>
+<button class="btn-secondary" onclick="closePinOverlay()">Cancelar</button>
+</div>
+</div>
+
+<div class="overlay" id="lockOverlay" hidden>
+<div class="lock-card">
+<div class="lock-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2l8 3v6c0 5-3.4 8.4-8 11-4.6-2.6-8-6-8-11V5l8-3z"/></svg></div>
+<div class="lock-title">Centinela bloqueado</div>
+<div class="lock-sub">Usa tu huella o PIN</div>
+<button class="btn-primary" onclick="tryBiometricUnlock()">Desbloquear</button>
+<button class="btn-secondary" onclick="openPinEntry()">Usar PIN</button>
+</div>
+</div>
+
+<div class="overlay" id="configOverlay" hidden>
+<div class="lock-card">
+<div class="lock-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2l8 3v6c0 5-3.4 8.4-8 11-4.6-2.6-8-6-8-11V5l8-3z"/></svg></div>
+<div class="lock-title">Configuración inicial</div>
+<div class="lock-sub">Configura un método de seguridad</div>
+<button class="btn-primary" onclick="registerBiometric()">Huella / rostro</button>
+<button class="btn-secondary" onclick="openPinSetup()">Configurar PIN</button>
+</div>
+</div>
+
+<div class="overlay" id="checklistOverlay" hidden>
+<div class="modal-card checklist-card">
+<div class="checklist-icon" id="checklistIcon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M13 2L3 14h7l-1 8 10-12h-7l1-8z"/></svg></div>
+<div class="lock-title" id="checklistTitle">Verificación</div>
+<div class="lock-sub" id="checklistSub">Condiciones antes de continuar</div>
+<div class="checklist-items" id="checklistItems"></div>
+<button class="btn-primary" id="checklistConfirmBtn" onclick="confirmChecklistAction()" disabled>Confirmar</button>
+<button class="btn-secondary" onclick="closeChecklistOverlay()">Cancelar</button>
+</div>
+</div>
+
+<script src="./js/app.js" defer></script>
+
+</body>
+</html>
