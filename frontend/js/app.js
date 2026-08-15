@@ -6,8 +6,9 @@
 // CONFIGURACIÓN
 // ==========================================
 const CONFIG = {
-    SERVICE_UUID: '0000ffe0-0000-1000-8000-00805f9b34fb',
-    CHARACTERISTIC_UUID: '0000ffe1-0000-1000-8000-00805f9b34fb',
+    SERVICE_UUID: '6e400001-b5a3-f393-e0a9-e50e24dcca9e',
+    NOTIFY_CHARACTERISTIC_UUID: '6e400002-b5a3-f393-e0a9-e50e24dcca9e',
+    WRITE_CHARACTERISTIC_UUID: '6e400003-b5a3-f393-e0a9-e50e24dcca9e',
     DEVICE_NAME: 'CENTINELA_BT',
     STATUS_INTERVAL: 3000,
 };
@@ -18,8 +19,10 @@ const CONFIG = {
 const state = {
     device: null,
     characteristic: null,
+    writeCharacteristic: null,
     isConnected: false,
     isConnecting: false,
+    lastUserGesture: 0,
     masterMac: '',
     isPaired: false,
     isArmed: false,
@@ -54,11 +57,21 @@ const state = {
 document.addEventListener('DOMContentLoaded', () => {
     log('🚀 Inicializando Centinela v5.0');
     loadSavedSettings();
+
+    const bleWarning = document.getElementById('bleWarning');
+    if (bleWarning) bleWarning.hidden = true;
+
+    document.addEventListener('pointerdown', () => {
+        state.lastUserGesture = Date.now();
+    }, { passive: true });
+    document.addEventListener('click', () => {
+        state.lastUserGesture = Date.now();
+    }, { passive: true });
     
-    if (!navigator.bluetooth) {
-        document.getElementById('bleWarning').hidden = false;
-        showToast('❌ Web Bluetooth no está disponible', 'error');
-        log('❌ Web Bluetooth no disponible');
+    if (!window.isSecureContext || !navigator.bluetooth) {
+        if (bleWarning) bleWarning.hidden = false;
+        showToast('❌ Web Bluetooth requiere HTTPS y Chrome/Edge', 'error');
+        log('❌ Web Bluetooth no disponible: requiere HTTPS + navegador compatible');
         return;
     }
     
@@ -132,6 +145,13 @@ async function connectBLE() {
         return;
     }
 
+    const hasUserGesture = Date.now() - state.lastUserGesture < 1500;
+    if (!hasUserGesture) {
+        showToast('📱 Toca el botón de conexión para autorizar Bluetooth', 'warning');
+        log('⚠️ Se intentó abrir Bluetooth sin gesto de usuario');
+        return;
+    }
+
     state.isConnecting = true;
 
     let device;
@@ -182,15 +202,17 @@ async function connectBLE() {
     showToast('🔗 Conectando a ' + (device.name || 'dispositivo') + '...', 'info');
     const server = await device.gatt.connect();
     const service = await server.getPrimaryService(CONFIG.SERVICE_UUID);
-    const characteristic = await service.getCharacteristic(CONFIG.CHARACTERISTIC_UUID);
+    const notifyCharacteristic = await service.getCharacteristic(CONFIG.NOTIFY_CHARACTERISTIC_UUID);
+    const writeCharacteristic = await service.getCharacteristic(CONFIG.WRITE_CHARACTERISTIC_UUID);
 
     state.device = device;
-    state.characteristic = characteristic;
+    state.characteristic = notifyCharacteristic;
+    state.writeCharacteristic = writeCharacteristic;
     state.isConnected = true;
     state.isConnecting = false;
 
-    await characteristic.startNotifications();
-    characteristic.addEventListener('characteristicvaluechanged', handleBLEMessage);
+    await notifyCharacteristic.startNotifications();
+    notifyCharacteristic.addEventListener('characteristicvaluechanged', handleBLEMessage);
 
     log('🔐 Verificando vinculación...');
     await sendCommand('GETMAC');
@@ -274,6 +296,7 @@ async function disconnectBLE() {
     state.isConnecting = false;
     state.device = null;
     state.characteristic = null;
+    state.writeCharacteristic = null;
     
     if (state.statusInterval) {
         clearInterval(state.statusInterval);
@@ -519,7 +542,9 @@ function updateConnectionUI(connected, status = '') {
 // ENVIAR COMANDOS
 // ==========================================
 async function sendCommand(command) {
-    if (!state.isConnected || !state.characteristic) {
+    const targetCharacteristic = state.writeCharacteristic || state.characteristic;
+
+    if (!state.isConnected || !targetCharacteristic) {
         if (!state.isConnecting) {
             showToast('⚠️ No hay conexión Bluetooth', 'warning');
         }
@@ -529,7 +554,7 @@ async function sendCommand(command) {
     try {
         const encoder = new TextEncoder();
         const data = encoder.encode(command + '\n');
-        await state.characteristic.writeValue(data);
+        await targetCharacteristic.writeValue(data);
         log(`📤 Enviado: ${command}`);
         return true;
     } catch (error) {
