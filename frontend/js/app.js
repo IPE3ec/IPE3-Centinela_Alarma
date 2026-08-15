@@ -86,21 +86,27 @@ function loadSavedSettings() {
     state.isPaired = !!state.masterMac;
     
     const savedPlate = localStorage.getItem('centinela_plate') || 'ABC-1234';
-    document.getElementById('vehiclePlate').textContent = savedPlate;
+    const plateEl = document.getElementById('vehiclePlate');
+    if (plateEl) plateEl.textContent = savedPlate;
     
     const proximity = localStorage.getItem('centinela_proximity') === 'true';
     if (proximity) {
         const el = document.getElementById('switchProximity');
-        el.classList.add('on');
-        el.setAttribute('aria-checked', 'true');
-        document.getElementById('proximityLiveCard').style.display = 'block';
+        if (el) {
+            el.classList.add('on');
+            el.setAttribute('aria-checked', 'true');
+        }
+        const proxCard = document.getElementById('proximityLiveCard');
+        if (proxCard) proxCard.style.display = 'block';
     }
     
     const sound = localStorage.getItem('centinela_sound') !== 'false';
     if (!sound) {
         const el = document.getElementById('switchSound');
-        el.classList.remove('on');
-        el.setAttribute('aria-checked', 'false');
+        if (el) {
+            el.classList.remove('on');
+            el.setAttribute('aria-checked', 'false');
+        }
     }
     
     log(`📱 MAC cargada: ${state.masterMac || 'ninguna'}`);
@@ -127,104 +133,102 @@ async function connectBLE() {
     }
 
     state.isConnecting = true;
-    updateConnectionUI(false, 'conectando');
 
+    let device;
     try {
         showToast('🔍 Buscando CENTINELA_BT...', 'info');
         log('🔍 Iniciando búsqueda de dispositivo...');
-
-        // ==========================================
-        // 🔥 MÉTODO 1: Buscar por nombre exacto
-        // ==========================================
-        let device;
+        device = await navigator.bluetooth.requestDevice({
+            filters: [{ name: 'CENTINELA_BT' }],
+            optionalServices: [CONFIG.SERVICE_UUID]
+        });
+    } catch (nameError) {
         try {
             device = await navigator.bluetooth.requestDevice({
-                filters: [{ name: 'CENTINELA_BT' }],
+                filters: [{ namePrefix: 'CENTINELA' }],
                 optionalServices: [CONFIG.SERVICE_UUID]
             });
-        } catch (nameError) {
-            // Si no encuentra por nombre exacto, intentar con prefix
-            log('⚠️ No encontrado por nombre exacto, intentando con prefix...');
+        } catch (prefixError) {
             try {
-                device = await navigator.bluetooth.requestDevice({
-                    filters: [{ namePrefix: 'CENTINELA' }],
-                    optionalServices: [CONFIG.SERVICE_UUID]
-                });
-            } catch (prefixError) {
-                // Si aún no encuentra, mostrar todos los dispositivos
-                log('⚠️ No encontrado por prefix, mostrando todos...');
                 device = await navigator.bluetooth.requestDevice({
                     acceptAllDevices: true,
                     optionalServices: [CONFIG.SERVICE_UUID]
                 });
-            }
-        }
-
-        if (!device) {
-            throw new Error('No se encontró ningún dispositivo');
-        }
-
-        log(`📱 Dispositivo encontrado: ${device.name || 'Sin nombre'} (${device.id})`);
-
-        // Verificar que sea el dispositivo correcto
-        if (device.name && !device.name.includes('CENTINELA')) {
-            showToast(`⚠️ Dispositivo seleccionado: ${device.name}`, 'warning');
-            log(`⚠️ Dispositivo seleccionado no es CENTINELA: ${device.name}`);
-        }
-
-        // Conectar
-        showToast('🔗 Conectando a ' + (device.name || 'dispositivo') + '...', 'info');
-        const server = await device.gatt.connect();
-        const service = await server.getPrimaryService(CONFIG.SERVICE_UUID);
-        const characteristic = await service.getCharacteristic(CONFIG.CHARACTERISTIC_UUID);
-
-        state.device = device;
-        state.characteristic = characteristic;
-        state.isConnected = true;
-        state.isConnecting = false;
-
-        // Configurar notificaciones
-        await characteristic.startNotifications();
-        characteristic.addEventListener('characteristicvaluechanged', handleBLEMessage);
-
-        // Lógica de vinculación
-        log('🔐 Verificando vinculación...');
-        await sendCommand('GETMAC');
-        await waitForMAC();
-
-        if (state.esp32Mac && state.esp32Mac !== '') {
-            const currentMac = state.device.id;
-            if (state.esp32Mac !== currentMac) {
-                showToast('❌ Este teléfono no está vinculado al vehículo', 'error');
-                log(`❌ MAC no coincide: ESP32=${state.esp32Mac}, Teléfono=${currentMac}`);
-                await disconnectBLE();
+            } catch (allError) {
                 state.isConnecting = false;
+                updateConnectionUI(false);
+                showToast('❌ No se encontró ningún dispositivo', 'error');
+                log(`❌ Error de conexión: ${allError.message}`);
                 return;
             }
-            log('✅ MAC verificada correctamente');
-            state.isPaired = true;
-            state.masterMac = state.esp32Mac;
-            localStorage.setItem('centinela_master_mac', state.masterMac);
-            showToast('✅ Conectado y verificado', 'success');
-        } else {
-            log('🆕 Primera vinculación detectada');
-            state.isFirstTime = true;
-            state.isPaired = false;
-            
-            const currentMac = state.device.id;
-            state.masterMac = currentMac;
-            localStorage.setItem('centinela_master_mac', currentMac);
-            
-            await sendCommand('SETMAC:' + currentMac);
-            
-            showToast('✅ ¡Primera vinculación exitosa!', 'success');
-            addEvent('🔗 Primera vinculación con el vehículo', 'ok');
-            log(`📱 MAC guardada: ${currentMac}`);
         }
+    }
 
-        updateConnectionUI(true);
-        await sendCommand('STATUS');
-        addEvent('🔗 Conexión Bluetooth establecida', 'ok');
+    if (!device) {
+        state.isConnecting = false;
+        updateConnectionUI(false);
+        showToast('❌ No se encontró ningún dispositivo', 'error');
+        return;
+    }
+
+    updateConnectionUI(false, 'conectando');
+    log(`📱 Dispositivo encontrado: ${device.name || 'Sin nombre'} (${device.id})`);
+
+    if (device.name && !device.name.includes('CENTINELA')) {
+        showToast(`⚠️ Dispositivo seleccionado: ${device.name}`, 'warning');
+        log(`⚠️ Dispositivo seleccionado no es CENTINELA: ${device.name}`);
+    }
+
+    showToast('🔗 Conectando a ' + (device.name || 'dispositivo') + '...', 'info');
+    const server = await device.gatt.connect();
+    const service = await server.getPrimaryService(CONFIG.SERVICE_UUID);
+    const characteristic = await service.getCharacteristic(CONFIG.CHARACTERISTIC_UUID);
+
+    state.device = device;
+    state.characteristic = characteristic;
+    state.isConnected = true;
+    state.isConnecting = false;
+
+    await characteristic.startNotifications();
+    characteristic.addEventListener('characteristicvaluechanged', handleBLEMessage);
+
+    log('🔐 Verificando vinculación...');
+    await sendCommand('GETMAC');
+    await waitForMAC();
+
+    if (state.esp32Mac && state.esp32Mac !== '') {
+        const currentMac = state.device.id;
+        if (state.esp32Mac !== currentMac) {
+            showToast('❌ Este teléfono no está vinculado al vehículo', 'error');
+            log(`❌ MAC no coincide: ESP32=${state.esp32Mac}, Teléfono=${currentMac}`);
+            await disconnectBLE();
+            state.isConnecting = false;
+            return;
+        }
+        log('✅ MAC verificada correctamente');
+        state.isPaired = true;
+        state.masterMac = state.esp32Mac;
+        localStorage.setItem('centinela_master_mac', state.masterMac);
+        showToast('✅ Conectado y verificado', 'success');
+    } else {
+        log('🆕 Primera vinculación detectada');
+        state.isFirstTime = true;
+        state.isPaired = false;
+        
+        const currentMac = state.device.id;
+        state.masterMac = currentMac;
+        localStorage.setItem('centinela_master_mac', currentMac);
+        
+        await sendCommand('SETMAC:' + currentMac);
+        
+        showToast('✅ ¡Primera vinculación exitosa!', 'success');
+        addEvent('🔗 Primera vinculación con el vehículo', 'ok');
+        log(`📱 MAC guardada: ${currentMac}`);
+    }
+
+    updateConnectionUI(true);
+    await sendCommand('STATUS');
+    addEvent('🔗 Conexión Bluetooth establecida', 'ok');
 
     } catch (error) {
         log(`❌ Error de conexión: ${error.message}`);
@@ -493,21 +497,21 @@ function updateConnectionUI(connected, status = '') {
         text.textContent = 'Conectado';
         keyLinkTitle.textContent = '✅ Conectado a CENTINELA_BT';
         keyLinkSub.textContent = state.isPaired ? 'Vinculado' : 'Primera vinculación';
-        beam.style.opacity = '1';
+        if (beam) beam.style.opacity = '1';
     } else if (status === 'conectando') {
         dot.className = 'dot';
         dot.style.background = '#F39C12';
         text.textContent = 'Conectando...';
         keyLinkTitle.textContent = '⏳ Conectando...';
         keyLinkSub.textContent = 'Esperando respuesta';
-        beam.style.opacity = '0.6';
+        if (beam) beam.style.opacity = '0.6';
     } else {
         dot.className = 'dot';
         dot.style.background = '#5A6578';
         text.textContent = 'Sin conexión';
         keyLinkTitle.textContent = '📱 Toca para conectar por Bluetooth';
         keyLinkSub.textContent = state.isPaired ? 'Teléfono vinculado' : 'Primera vinculación';
-        beam.style.opacity = '0.35';
+        if (beam) beam.style.opacity = '0.35';
     }
 }
 
