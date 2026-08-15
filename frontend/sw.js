@@ -3,7 +3,7 @@
    Caché offline-first para PWA
    ========================================================================= */
 
-const CACHE_NAME = 'centinela-v5.0.2';
+const CACHE_NAME = 'centinela-v5.0.3';
 const ASSETS_TO_CACHE = [
   '/',
   '/index.html',
